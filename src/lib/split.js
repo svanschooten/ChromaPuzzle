@@ -1,195 +1,199 @@
-// Splits a source image into semi-transparent chroma plates (design doc 2.2),
-// optionally fracturing the split across shards to make single plates unreadable.
+// Turns an image into plates: every band's value is handed out over the
+// plates, and the shares always add back up to the original pixel.
 import { clamp255 } from './color.js';
 
-export const SCHEMES = {
-  2: {
-    label: 'Warm / Cool',
-    bands: [
-      { tint: [255, 255, 0], label: 'Warm (R+G)' },
-      { tint: [0, 0, 255], label: 'Cool (B)' },
-    ],
-  },
-  3: {
-    label: 'RGB',
-    bands: [
-      { tint: [255, 0, 0], label: 'Red' },
-      { tint: [0, 255, 0], label: 'Green' },
-      { tint: [0, 0, 255], label: 'Blue' },
-    ],
-  },
-  4: {
-    label: 'RGBW',
-    bands: [
-      { tint: [255, 0, 0], label: 'Red residual' },
-      { tint: [0, 255, 0], label: 'Green residual' },
-      { tint: [0, 0, 255], label: 'Blue residual' },
-      { tint: [255, 255, 255], label: 'White (luminance)' },
-    ],
-  },
-};
+const NO_TONAL_SPLIT = 255; // a band's value never exceeds one channel range
 
-function emptyPlates(width, height, numPlates) {
-  const scheme = SCHEMES[numPlates];
-  return scheme.bands.map((band) => ({
-    data: new Uint8ClampedArray(width * height * 4),
-    tint: band.tint,
-    bandLabel: band.label,
-  }));
-}
-
-/**
- * Per-pixel band contributions: `out[band * 3 + channel]`. The bands always sum
- * back to the original pixel, which is what makes the plates reconstruct it.
- */
-function bandContributions(numPlates, r, g, b, out) {
-  out.fill(0);
-  if (numPlates === 2) {
-    out[0] = r;
-    out[1] = g;
-    out[5] = b;
-  } else if (numPlates === 3) {
-    out[0] = r;
-    out[4] = g;
-    out[8] = b;
-  } else {
-    const k = Math.min(r, g, b); // common luminance carried by the white plate
-    out[0] = r - k;
-    out[4] = g - k;
-    out[8] = b - k;
-    out[9] = k;
-    out[10] = k;
-    out[11] = k;
+function prepare({ pixels, width, height, plan, opacity, field, only, alphaSource }) {
+  const plateCount = plan.bandCount;
+  const plates = plan.bands.map((band) => ({ data: null, tint: band.tint, label: band.label }));
+  const buffers = new Array(plateCount).fill(null);
+  const targets = only === null ? plates.map((_, index) => index) : [only];
+  for (const index of targets) {
+    buffers[index] = new Uint8ClampedArray(width * height * 4);
+    plates[index].data = buffers[index];
   }
+
+  return {
+    pixels,
+    alphaSource,
+    plates,
+    buffers,
+    targets: Int32Array.from(targets),
+    plateCount,
+    plan,
+    values: new Int32Array(plateCount * 3),
+    boost: 1 / opacity,
+    opacity,
+    field,
+    only,
+    pixelCount: width * height,
+    thresholds: new Float32Array(plateCount).fill(NO_TONAL_SPLIT),
+    weights: new Float32Array(plateCount * 2 * plateCount),
+  };
 }
 
-/** Which bands touch a given channel, per scheme — the fractured loop's index. */
-const CHANNEL_BANDS = {
-  2: [[0], [0], [1]],
-  3: [[0], [1], [2]],
-  4: [
-    [0, 3],
-    [1, 3],
-    [2, 3],
-  ],
-};
-
-/**
- * @param {Uint8ClampedArray} src RGBA source pixels
- * @param {{map: Int32Array, plans: object}|null} fracture
- * @returns {{data: Uint8ClampedArray, tint: number[], bandLabel: string}[]}
- */
-export function splitPlates(src, width, height, numPlates, plateOpacity, fracture = null) {
-  return fracture
-    ? splitFractured(src, width, height, numPlates, plateOpacity, fracture)
-    : splitCanonical(src, width, height, numPlates, plateOpacity);
+/** Alpha is the same on every plate; colour work can skip empty pixels. */
+function writeAlpha(context, pixelIndex) {
+  const { alphaSource, buffers, targets, opacity } = context;
+  const j = pixelIndex * 4;
+  const alpha = Math.round(alphaSource[j + 3] * opacity);
+  for (let t = 0; t < targets.length; t++) buffers[targets[t]][j + 3] = alpha;
+  return alphaSource[j + 3] !== 0;
 }
 
-/** The plain split: one whole colour band per plate. */
-function splitCanonical(src, width, height, numPlates, plateOpacity) {
-  const comp = 1 / plateOpacity;
-  const out = emptyPlates(width, height, numPlates);
-  const total = width * height;
-
-  for (let i = 0; i < total; i++) {
+/** No occlusion: each band goes straight to its own plate. */
+function fillPlain(context) {
+  const { pixels, buffers, plan, values, boost, pixelCount, plateCount } = context;
+  for (let i = 0; i < pixelCount; i++) {
+    if (!writeAlpha(context, i)) continue;
     const j = i * 4;
-    const r = src[j],
-      g = src[j + 1],
-      b = src[j + 2],
-      a = src[j + 3];
-    const pa = Math.round(a * plateOpacity);
+    plan.values(pixels[j], pixels[j + 1], pixels[j + 2], values);
 
-    if (numPlates === 2) {
-      const d0 = out[0].data,
-        d1 = out[1].data;
-      d0[j] = clamp255(r * comp);
-      d0[j + 1] = clamp255(g * comp);
-      d0[j + 3] = pa;
-      d1[j + 2] = clamp255(b * comp);
-      d1[j + 3] = pa;
-    } else if (numPlates === 3) {
-      const d0 = out[0].data,
-        d1 = out[1].data,
-        d2 = out[2].data;
-      d0[j] = clamp255(r * comp);
-      d0[j + 3] = pa;
-      d1[j + 1] = clamp255(g * comp);
-      d1[j + 3] = pa;
-      d2[j + 2] = clamp255(b * comp);
-      d2[j + 3] = pa;
-    } else {
-      const k = Math.min(r, g, b);
-      const d0 = out[0].data,
-        d1 = out[1].data,
-        d2 = out[2].data,
-        d3 = out[3].data;
-      d0[j] = clamp255((r - k) * comp);
-      d0[j + 3] = pa;
-      d1[j + 1] = clamp255((g - k) * comp);
-      d1[j + 3] = pa;
-      d2[j + 2] = clamp255((b - k) * comp);
-      d2[j + 3] = pa;
-      const kc = clamp255(k * comp);
-      d3[j] = kc;
-      d3[j + 1] = kc;
-      d3[j + 2] = kc;
-      d3[j + 3] = pa;
+    for (let band = 0; band < plateCount; band++) {
+      const buffer = buffers[band];
+      if (!buffer) continue; // rendering a single plate: skip the others
+      for (let channel = 0; channel < 3; channel++) {
+        const value = values[band * 3 + channel];
+        if (value <= 0) continue;
+        const at = j + channel;
+        buffer[at] = clamp255(buffer[at] + Math.round(value * boost));
+      }
     }
   }
-  return out;
+  return context.plates;
 }
 
 /**
- * The fractured split. Each shard hands every band's dark and bright halves to
- * different plates in different proportions. Shares are handed out by
- * cumulative rounding, so the integer values still add up to the original.
+ * Occluded split. Each band's value is shared out by cumulative rounding: a
+ * plate takes the difference between running totals, so the integer shares
+ * still sum to the original value.
  */
-function splitFractured(src, width, height, numPlates, plateOpacity, { map, plans }) {
-  const comp = 1 / plateOpacity;
-  const out = emptyPlates(width, height, numPlates);
-  const datas = out.map((plate) => plate.data);
-  const { thresholds, weights, bandCount } = plans;
-  const channelBands = CHANNEL_BANDS[numPlates];
-  const contrib = new Float32Array(bandCount * 3);
-  const total = width * height;
+function fillShared(context) {
+  const {
+    pixels,
+    buffers,
+    plan,
+    values,
+    boost,
+    pixelCount,
+    plateCount,
+    field,
+    thresholds,
+    weights,
+  } = context;
+  const halves = field.tonal ? 2 : 1;
+  let lastShard = null;
 
-  for (let i = 0; i < total; i++) {
+  for (let i = 0; i < pixelCount; i++) {
+    if (!writeAlpha(context, i)) continue;
+    const shard = field.planAt(i);
+    if (shard !== lastShard) {
+      field.fill(i, thresholds, weights, 0, plateCount);
+      lastShard = shard;
+    }
     const j = i * 4;
-    const a = src[j + 3];
-    const pa = Math.round(a * plateOpacity);
-    for (let p = 0; p < numPlates; p++) datas[p][j + 3] = pa;
-    if (a === 0) continue;
+    plan.values(pixels[j], pixels[j + 1], pixels[j + 2], values);
 
-    bandContributions(numPlates, src[j], src[j + 1], src[j + 2], contrib);
-    const shard = map[i];
+    for (let entry = 0; entry < plateCount * 3; entry++) {
+      const value = values[entry];
+      if (value <= 0) continue;
 
-    for (let c = 0; c < 3; c++) {
-      const bands = channelBands[c];
-      for (let n = 0; n < bands.length; n++) {
-        const band = bands[n];
-        const value = contrib[band * 3 + c];
-        if (value <= 0) continue;
+      const band = (entry / 3) | 0;
+      const at = j + (entry - band * 3);
+      const lowPart = Math.min(value, thresholds[band]);
 
-        const slot = shard * bandCount + band;
-        const low = Math.min(value, thresholds[slot]);
-        const base = slot * 2 * numPlates;
+      for (let half = 0; half < halves; half++) {
+        const amount = (half === 0 ? lowPart : value - lowPart) * boost;
+        if (amount <= 0) continue;
+        const base = (band * 2 + half) * plateCount;
 
-        // Dark half, then bright half — each spread over the plates.
-        for (let half = 0; half < 2; half++) {
-          const amount = (half === 0 ? low : value - low) * comp;
-          if (amount <= 0) continue;
-          const offset = base + half * numPlates;
-          let acc = 0;
-          let previous = 0;
-          for (let p = 0; p < numPlates; p++) {
-            acc += weights[offset + p] * amount;
-            const rounded = Math.round(acc);
-            if (rounded !== previous) datas[p][j + c] += rounded - previous;
-            previous = rounded;
-          }
+        let running = 0;
+        let handedOut = 0;
+        for (let plate = 0; plate < plateCount; plate++) {
+          running += weights[base + plate] * amount;
+          const rounded = Math.round(running);
+          const share = rounded - handedOut;
+          handedOut = rounded;
+          const buffer = buffers[plate];
+          if (share !== 0 && buffer) buffer[at] = clamp255(buffer[at] + share);
         }
       }
     }
   }
-  return out;
+  return context.plates;
+}
+
+/**
+ * One plate on its own, for decoys. The band loop deliberately mirrors
+ * `fillShared` rather than sharing a helper with it: this runs per pixel per
+ * band, and the two differ in the one line that matters. A decoy is never part of the sum, so its
+ * shares do not have to add up with anyone else's — no cumulative pass over the
+ * other plates, and only its own weight has to be worked out.
+ */
+function fillSingle(context) {
+  const {
+    pixels,
+    buffers,
+    plan,
+    values,
+    boost,
+    pixelCount,
+    plateCount,
+    field,
+    thresholds,
+    weights,
+  } = context;
+  const only = context.only;
+  const buffer = buffers[only];
+  const halves = field.tonal ? 2 : 1;
+
+  for (let i = 0; i < pixelCount; i++) {
+    if (!writeAlpha(context, i)) continue;
+    field.fill(i, thresholds, weights, only, only + 1);
+    const j = i * 4;
+    plan.values(pixels[j], pixels[j + 1], pixels[j + 2], values);
+
+    for (let entry = 0; entry < plateCount * 3; entry++) {
+      const value = values[entry];
+      if (value <= 0) continue;
+
+      const band = (entry / 3) | 0;
+      const at = j + (entry - band * 3);
+      const lowPart = Math.min(value, thresholds[band]);
+
+      for (let half = 0; half < halves; half++) {
+        const amount = (half === 0 ? lowPart : value - lowPart) * boost;
+        if (amount <= 0) continue;
+        const share = Math.round(weights[(band * 2 + half) * plateCount + only] * amount);
+        if (share !== 0) buffer[at] = clamp255(buffer[at] + share);
+      }
+    }
+  }
+  return [context.plates[only]];
+}
+
+/**
+ * @param {object} options
+ * @param {Uint8ClampedArray} options.pixels source image
+ * @param {object} options.plan from `planBands`
+ * @param {number} options.opacity plate alpha; 1 means no color boost
+ * @param {?object} options.field occlusion weight field, or null for a plain split
+ * @param {?number} options.only render just this plate index
+ * @param {Uint8ClampedArray} [options.alphaSource] where plate alpha comes from
+ * @returns {{data: Uint8ClampedArray, tint: number[], label: string}[]}
+ */
+export function splitPlates({
+  pixels,
+  width,
+  height,
+  plan,
+  opacity = 1,
+  field = null,
+  only = null,
+  alphaSource = pixels,
+}) {
+  const context = prepare({ pixels, width, height, plan, opacity, field, only, alphaSource });
+  if (!field) return only === null ? fillPlain(context) : [fillPlain(context)[only]];
+  return only === null ? fillShared(context) : fillSingle(context);
 }

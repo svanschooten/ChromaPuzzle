@@ -174,7 +174,8 @@ h2 {
   flex-direction: column;
   gap: 4px;
 }
-.control .row {
+.control .row,
+.cutrow .row {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
@@ -526,4 +527,83 @@ input[type='checkbox'] {
   .canvas-wrap canvas {
     max-height: none;
   }
+}
+
+/* ---------- segmented choice ---------- */
+.segmented {
+  display: flex;
+  gap: 4px;
+}
+.segmented button {
+  flex: 1;
+  background: var(--glass);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  padding: 6px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.segmented button:hover {
+  color: var(--text);
+}
+.segmented button.active {
+  background: var(--accent);
+  border-color: var(--highlight);
+  color: var(--text);
+}
+.choice-label {
+  font-size: 13px;
+}
+.checkrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+/* ---------- band cut editor ---------- */
+.cutrow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.cutstrip {
+  position: relative;
+  height: 40px;
+  border-radius: 5px;
+  border: 1px solid var(--line);
+  touch-action: none;
+}
+.cuthist {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.cuthandle {
+  position: absolute;
+  top: -3px;
+  width: 9px;
+  height: calc(100% + 6px);
+  margin-left: -4px;
+  padding: 0;
+  border: 1px solid #fff;
+  border-radius: 3px;
+  background: rgba(20, 20, 40, 0.75);
+  cursor: ew-resize;
+}
+.cuthandle:hover,
+.cuthandle:focus-visible {
+  background: var(--highlight);
+  outline: none;
+}
+.estimate {
+  font-size: 11px;
+  color: var(--muted);
+}
+.estimate.slow {
+  color: var(--warn);
 }

@@ -1,6 +1,6 @@
 // End-to-end smoke test: drives the built single-page app in a real browser.
 //
-//   npm run build && npm test
+//   npm run build && npm run test:e2e
 //
 // Set CHROME_PATH to point at a Chromium/Chrome binary if the Playwright
 // download is not present (e.g. CHROME_PATH=/usr/bin/chromium-browser).
@@ -14,6 +14,9 @@ import { pathToFileURL } from 'node:url';
 import { makePng } from './makePng.mjs';
 
 const BUILD = resolve('dist/index.html');
+const W = 96;
+const H = 72;
+
 const checks = [];
 const check = (name, ok, detail = '') => {
   checks.push({ name, ok, detail });
@@ -32,6 +35,18 @@ function combinations(items, size) {
   return [...combinations(rest, size - 1).map((c) => [head, ...c]), ...combinations(rest, size)];
 }
 
+function meanAbsError(blend, source) {
+  let sum = 0;
+  let count = 0;
+  for (let i = 0; i < blend.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      sum += Math.abs(blend[i + c] - source[i + c]);
+      count++;
+    }
+  }
+  return sum / count;
+}
+
 async function main() {
   if (!existsSync(BUILD)) throw new Error('dist/index.html missing — run `npm run build` first');
 
@@ -40,9 +55,8 @@ async function main() {
   const work = resolve('node_modules/.cache/chroma-e2e');
   await rm(work, { recursive: true, force: true });
   await mkdir(work, { recursive: true });
+
   const sourcePath = join(work, 'source.png');
-  const W = 96,
-    H = 72;
   await writeFile(
     sourcePath,
     makePng(W, H, (x, y) => [
@@ -59,14 +73,33 @@ async function main() {
   });
   const context = await browser.newContext({
     acceptDownloads: true,
-    viewport: { width: 1400, height: 900 },
+    viewport: { width: 1400, height: 1000 },
   });
   const page = await context.newPage();
   const errors = [];
-  page.on('pageerror', (err) => errors.push(err.message));
+  page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(pathToFileURL(BUILD).href);
 
-  /* ---------------------------------------------------------- creator */
+  const setRange = async (selector, value) => {
+    await page.fill(selector, String(value));
+    await page.dispatchEvent(selector, 'input');
+  };
+  const regenerate = async () => {
+    await page.click('.panel.left button.primary');
+    await page.waitForSelector('.panel.right .card');
+    await page.waitForFunction(
+      () => !document.querySelector('.panel.left button.primary .spinner'),
+    );
+    await page.waitForTimeout(150);
+  };
+  const readCanvas = () =>
+    page.evaluate(() => {
+      const canvas = document.querySelector('.canvas-wrap canvas');
+      return [...canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data];
+    });
+  const statusText = () => page.locator('.statusbar').textContent();
+
+  /* ---------------------------------------------------------------- creator */
   await page.setInputFiles('input[aria-label^="Upload source image"]', sourcePath);
   await page.waitForSelector('img[alt="Source image preview"]');
   check(
@@ -74,165 +107,193 @@ async function main() {
     (await page.locator('.thumbrow .meta').first().textContent()).includes(`${W} × ${H}`),
   );
 
-  await page.click('button.primary:has-text("Generate Plates")');
-  await page.waitForSelector('.panel.right .card', { timeout: 20000 });
-  const cardCount = await page.locator('.panel.right .card').count();
-  check('generates 3 real + 2 false plates', cardCount === 5, `${cardCount} cards`);
+  await regenerate();
+  check(
+    'generates 3 real + 2 false plates',
+    (await page.locator('.panel.right .card').count()) === 5,
+  );
+  check(
+    'generation runs in a worker',
+    !(await statusText()).includes('main thread'),
+    await statusText(),
+  );
 
-  // Decode the fixture inside the page: file:// fetch is blocked, so pass bytes.
   const sourceRgb = await page.evaluate(
     async (bytes) => {
-      const img = await createImageBitmap(new Blob([new Uint8Array(bytes)], { type: 'image/png' }));
-      const c = document.createElement('canvas');
-      c.width = img.width;
-      c.height = img.height;
-      c.getContext('2d').drawImage(img, 0, 0);
-      return [...c.getContext('2d').getImageData(0, 0, img.width, img.height).data];
+      const image = await createImageBitmap(
+        new Blob([new Uint8Array(bytes)], { type: 'image/png' }),
+      );
+      const canvas = document.createElement('canvas');
+      canvas.width = image.width;
+      canvas.height = image.height;
+      canvas.getContext('2d').drawImage(image, 0, 0);
+      return [...canvas.getContext('2d').getImageData(0, 0, image.width, image.height).data];
     },
     [...(await readFile(sourcePath))],
   );
 
-  const readCanvas = () =>
-    page.evaluate(() => {
-      const c = document.querySelector('.canvas-wrap canvas');
-      return [...c.getContext('2d').getImageData(0, 0, c.width, c.height).data];
-    });
-
   const blend = await readCanvas();
-  if (sourceRgb) {
-    let sum = 0,
-      n = 0;
-    for (let i = 0; i < blend.length; i += 4) {
-      for (let c = 0; c < 3; c++) {
-        sum += Math.abs(blend[i + c] - sourceRgb[i + c]);
-        n++;
-      }
-    }
-    const mae = sum / n;
-    check('real plates reconstruct the source', mae < 4, `mean abs error ${mae.toFixed(2)}/255`);
-  }
+  check(
+    'at opacity 1 the plates reconstruct the source exactly',
+    meanAbsError(blend, sourceRgb) === 0,
+    `mean abs error ${meanAbsError(blend, sourceRgb).toFixed(3)}/255`,
+  );
 
-  // Enabling a false plate must visibly corrupt the reconstruction.
   await page.locator('.toggle-row.false-plate input[type=checkbox]').first().check();
   await page.waitForTimeout(120);
   const corrupted = await readCanvas();
-  // Compare every channel: a decoy that drifted towards blue adds no red at all.
-  let diff = 0;
-  let samples = 0;
-  for (let i = 0; i < blend.length; i += 4) {
-    for (let c = 0; c < 3; c++) {
-      diff += Math.abs(blend[i + c] - corrupted[i + c]);
-      samples++;
-    }
-  }
   check(
-    'false plate corrupts the blend',
-    diff / samples > 3,
-    `mean rgb delta ${(diff / samples).toFixed(2)}/255`,
+    'a decoy corrupts the blend',
+    meanAbsError(corrupted, blend) > 3,
+    `mean rgb delta ${meanAbsError(corrupted, blend).toFixed(2)}/255`,
   );
   await page.locator('.toggle-row.false-plate input[type=checkbox]').first().uncheck();
 
-  // How concentrated a plate is in one colour channel: 1.0 means a pure band.
+  // How concentrated a plate is in one color channel: 1.0 means a pure band.
   const channelConcentration = (index) =>
     page.evaluate((i) => {
       const img = document.querySelectorAll('.panel.right .card img')[i];
-      const c = document.createElement('canvas');
-      c.width = img.naturalWidth;
-      c.height = img.naturalHeight;
-      c.getContext('2d').drawImage(img, 0, 0);
-      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      canvas.getContext('2d').drawImage(img, 0, 0);
+      const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
       const sums = [0, 0, 0];
-      for (let k = 0; k < d.length; k += 4) {
-        sums[0] += d[k];
-        sums[1] += d[k + 1];
-        sums[2] += d[k + 2];
+      for (let k = 0; k < data.length; k += 4) {
+        sums[0] += data[k];
+        sums[1] += data[k + 1];
+        sums[2] += data[k + 2];
       }
-      const total = sums[0] + sums[1] + sums[2] || 1;
-      return Math.max(...sums) / total;
+      return Math.max(...sums) / (sums[0] + sums[1] + sums[2] || 1);
     }, index);
 
-  const plainConcentration = await channelConcentration(0);
+  const plain = await channelConcentration(0);
   check(
-    'an unfractured plate is a single colour band',
-    plainConcentration > 0.9,
-    `${(plainConcentration * 100).toFixed(1)}% of its energy in one channel`,
+    'without occlusion a plate is a single color band',
+    plain > 0.9,
+    `${(plain * 100).toFixed(1)}% in one channel`,
   );
 
-  // The 2- and 4-plate schemes use different maths; both must still reconstruct.
-  for (const count of [2, 4]) {
-    await page.fill('#c-real', String(count));
-    await page.dispatchEvent('#c-real', 'input');
-    await page.click('button.primary:has-text("Regenerate Plates")');
-    await page.waitForTimeout(400);
+  for (const count of [2, 8, 16]) {
+    await setRange('#c-real', count);
+    await regenerate();
     const pixels = await readCanvas();
-    let sum = 0,
-      n = 0;
-    for (let i = 0; i < pixels.length; i += 4) {
-      for (let c = 0; c < 3; c++) {
-        sum += Math.abs(pixels[i + c] - sourceRgb[i + c]);
-        n++;
-      }
-    }
     check(
-      `${count}-plate scheme reconstructs the source`,
-      sum / n < 4,
-      `mean abs error ${(sum / n).toFixed(2)}/255`,
+      `${count} chroma plates reconstruct the source`,
+      meanAbsError(pixels, sourceRgb) === 0,
+      `${await page.locator('.panel.right .card').count()} cards`,
     );
   }
-  await page.fill('#c-real', '3');
-  await page.dispatchEvent('#c-real', 'input');
-  await page.click('button.primary:has-text("Regenerate Plates")');
-  await page.waitForSelector('.panel.right .card');
-  await page.waitForTimeout(300);
 
-  // Fracture: the picture must still come back, but no plate may still be a
-  // readable single band.
-  await page.fill('#c-fracture', '0.6');
-  await page.dispatchEvent('#c-fracture', 'input');
-  await page.click('button.primary:has-text("Regenerate Plates")');
-  await page.waitForSelector('.panel.right .card');
-  await page.waitForTimeout(800);
+  await setRange('#c-real', 5);
+  await page.click('#c-band-weighted');
+  await regenerate();
+  check(
+    'weighted band planning reconstructs the source',
+    meanAbsError(await readCanvas(), sourceRgb) === 0,
+  );
 
-  const fracturedBlend = await readCanvas();
-  let fractureSum = 0;
-  let fractureCount = 0;
-  for (let i = 0; i < fracturedBlend.length; i += 4) {
-    for (let c = 0; c < 3; c++) {
-      fractureSum += Math.abs(fracturedBlend[i + c] - sourceRgb[i + c]);
-      fractureCount++;
-    }
+  await page.click('#c-space-spectrum');
+  await regenerate();
+  check('spectrum bands reconstruct the source', meanAbsError(await readCanvas(), sourceRgb) === 0);
+  const hueLabel = await page.locator('.panel.right .card .sub').first().textContent();
+  check('spectrum plates are labelled by hue arc', /°/.test(hueLabel), hueLabel.trim());
+
+  await page.click('#c-space-channels');
+  await setRange('#c-weave', 4);
+  await regenerate();
+  check('weaved bands reconstruct the source', meanAbsError(await readCanvas(), sourceRgb) === 0);
+  check(
+    'weaved plates say so',
+    (await page.locator('.panel.right .card .sub').first().textContent()).includes('woven'),
+  );
+
+  await page.click('#c-band-manual');
+  const handles = page.locator('.cuthandle');
+  const handleCount = await handles.count();
+  check('manual mode offers draggable cuts', handleCount > 0, `${handleCount} handles`);
+  const firstHandle = handles.first();
+  const cutBefore = await firstHandle.getAttribute('aria-valuenow');
+  await firstHandle.focus();
+  for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowRight');
+  const cutAfter = await firstHandle.getAttribute('aria-valuenow');
+  check(
+    'cuts can be moved from the keyboard',
+    Number(cutAfter) === Number(cutBefore) + 5,
+    `${cutBefore} → ${cutAfter}`,
+  );
+  await regenerate();
+  check(
+    'hand-placed cuts reconstruct the source',
+    meanAbsError(await readCanvas(), sourceRgb) === 0,
+  );
+
+  await setRange('#c-weave', 1);
+  await page.click('#c-band-linear');
+
+  await page.click('#c-falsemode-warp');
+  await setRange('#c-decoy', 0.9);
+  await regenerate();
+  check(
+    'warped decoys still leave the real stack exact',
+    meanAbsError(await readCanvas(), sourceRgb) === 0,
+  );
+  check(
+    'an estimate is shown before generating',
+    (await page.locator('.estimate').textContent()).includes('Estimated'),
+  );
+
+  await setRange('#c-real', 4);
+  await page.click('#c-band-linear');
+  await page.check('#c-occlusion');
+  for (const mode of ['fracture', 'blend', 'noise']) {
+    await page.click(`#c-occmode-${mode}`);
+    await setRange('#c-strength', 0.9);
+    await regenerate();
+    check(
+      `${mode} occlusion reconstructs the source`,
+      meanAbsError(await readCanvas(), sourceRgb) === 0,
+      `mean abs error ${meanAbsError(await readCanvas(), sourceRgb).toFixed(3)}/255`,
+    );
+    const mixed = await channelConcentration(0);
+    check(
+      `${mode} occlusion mixes bands across plates`,
+      mixed < 0.8,
+      `${(mixed * 100).toFixed(1)}% in one channel`,
+    );
   }
-  check(
-    'fractured plates still reconstruct the source',
-    fractureSum / fractureCount < 4,
-    `mean abs error ${(fractureSum / fractureCount).toFixed(2)}/255`,
-  );
 
-  const fracturedConcentration = await channelConcentration(0);
-  check(
-    'fracturing mixes the bands across plates',
-    fracturedConcentration < 0.75,
-    `${(fracturedConcentration * 100).toFixed(1)}% of its energy in one channel`,
-  );
+  await page.click('#c-occmode-fracture');
+  await setRange('#c-real', 3);
+  await regenerate();
 
   const download = await Promise.all([
     page.waitForEvent('download'),
     page.click('button.primary:has-text("EXPORT PUZZLE")'),
-  ]).then(([d]) => d);
+  ]).then(([event]) => event);
   const zipPath = join(work, 'puzzle.zip');
   await download.saveAs(zipPath);
   const zip = await JSZip.loadAsync(await readFile(zipPath));
   const meta = JSON.parse(await zip.file('puzzle.json').async('string'));
-  const pngNames = Object.keys(zip.files)
-    .filter((n) => n.endsWith('.png'))
-    .sort();
-  check('zip holds 5 plates and puzzle.json', pngNames.length === 5 && !!meta.solutionHash);
+  const pngNames = Object.keys(zip.files).filter((name) => name.endsWith('.png'));
+  check('zip holds every plate plus puzzle.json', pngNames.length === 5 && !!meta.solutionHash);
   check(
-    'metadata matches the puzzle',
-    meta.numRealPlates === 3 && meta.numFalsePlates === 2 && meta.width === W && meta.height === H,
+    'metadata records the settings used',
+    meta.numRealPlates === 3 &&
+      meta.numFalsePlates === 2 &&
+      meta.bandMode === 'linear' &&
+      meta.bandSpace === 'channels' &&
+      meta.weave === 1 &&
+      meta.decoyIntensity === 0.9 &&
+      meta.falseMode === 'warp' &&
+      meta.occlusion?.mode === 'fracture',
+    JSON.stringify({
+      band: meta.bandMode,
+      decoys: meta.falseMode,
+      occlusion: meta.occlusion?.mode,
+    }),
   );
 
-  // Recover the real set from the published hash — the same check the app runs.
   const realSet = combinations(meta.plateFiles, meta.numRealPlates).find(
     (combo) => sha(combo) === meta.solutionHash,
   );
@@ -242,7 +303,7 @@ async function main() {
     realSet ? realSet.join(' ') : 'none',
   );
 
-  /* ----------------------------------------------------------- solver */
+  /* ----------------------------------------------------------------- solver */
   await page.click('.modes button:has-text("Solver")');
   await page.setInputFiles('input[aria-label^="Load plates"]', zipPath);
   await page.waitForSelector('.panel.right .card');
@@ -265,28 +326,14 @@ async function main() {
   }
   await page.waitForTimeout(200);
   check(
-    'disabling the false plates verifies as solved',
+    'disabling the decoys verifies as solved',
     (await verdict.textContent()).includes('Correct combination'),
   );
+  check(
+    'the solved stack reproduces the source',
+    meanAbsError(await readCanvas(), sourceRgb) === 0,
+  );
 
-  const solverBlend = await readCanvas();
-  if (sourceRgb) {
-    let sum = 0,
-      n = 0;
-    for (let i = 0; i < solverBlend.length; i += 4) {
-      for (let c = 0; c < 3; c++) {
-        sum += Math.abs(solverBlend[i + c] - sourceRgb[i + c]);
-        n++;
-      }
-    }
-    check(
-      'solved stack reproduces the source',
-      sum / n < 4,
-      `mean abs error ${(sum / n).toFixed(2)}/255`,
-    );
-  }
-
-  // Solo, reorder, and the keyboard path all keep the stack usable.
   await page.locator('.panel.right .card').first().locator('button:has-text("solo")').click();
   check(
     'solo isolates one plate',
@@ -298,16 +345,12 @@ async function main() {
   await page.locator('.panel.right .card').first().focus();
   await page.keyboard.press('ArrowDown');
   const after = await page.locator('.panel.right .card .name').allTextContents();
-  check(
-    'keyboard reordering moves a plate',
-    before[0] === after[1] && before[1] === after[0],
-    `${before.join(',')} -> ${after.join(',')}`,
-  );
+  check('keyboard reordering moves a plate', before[0] === after[1] && before[1] === after[0]);
 
   const solution = await Promise.all([
     page.waitForEvent('download'),
     page.click('button.primary:has-text("EXPORT SOLUTION")'),
-  ]).then(([d]) => d);
+  ]).then(([event]) => event);
   const solutionPath = join(work, 'solution.png');
   await solution.saveAs(solutionPath);
   const bytes = await readFile(solutionPath);
@@ -321,12 +364,12 @@ async function main() {
 
   await browser.close();
 
-  const failed = checks.filter((c) => !c.ok);
+  const failed = checks.filter((entry) => !entry.ok);
   console.log(`\n${checks.length - failed.length}/${checks.length} checks passed`);
   process.exit(failed.length ? 1 : 0);
 }
 
-main().catch((err) => {
-  console.error(err);
+main().catch((error) => {
+  console.error(error);
   process.exit(1);
 });

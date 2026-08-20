@@ -138,7 +138,12 @@ export async function exportPuzzleZip({
   numRealPlates,
   numFalsePlates,
   plateOpacity,
-  fracture,
+  bandSpace,
+  bandMode,
+  weave,
+  falseMode,
+  decoyIntensity,
+  occlusion,
   tints,
 }) {
   const zip = new JSZip();
@@ -155,14 +160,19 @@ export async function exportPuzzleZip({
   }
 
   const meta = {
-    version: '1.1',
+    version: '1.2',
     width,
     height,
     numRealPlates,
     numFalsePlates,
     totalPlates: order.length,
     plateOpacity,
-    fracture,
+    bandSpace,
+    bandMode,
+    weave,
+    falseMode,
+    decoyIntensity,
+    occlusion,
     tints,
     plateFiles,
     solutionHash: await solutionHash(realFiles),

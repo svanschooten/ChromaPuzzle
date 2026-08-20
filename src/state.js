@@ -1,11 +1,31 @@
 // Shared application state and the actions that mutate it.
-import { computed, markRaw, reactive } from 'vue';
-import { splitPlates, SCHEMES } from './lib/split.js';
-import { generateFalsePlate } from './lib/falsePlate.js';
-import { buildShardPlans, buildShards } from './lib/fracture.js';
+import { computed, markRaw, reactive, toRaw } from 'vue';
+import {
+  BAND_MODES,
+  BAND_SPACES,
+  MAX_PLATES,
+  MAX_WEAVE,
+  MIN_PLATES,
+  SOFT_PLATE_LIMIT,
+} from './lib/bands/index.js';
+import { OCCLUSION_MODES } from './lib/occlusion/index.js';
+import { FALSE_MODES } from './lib/falsePlate.js';
+import { describeDuration, estimateGenerationMs } from './lib/cost.js';
 import { averageTint, makeThumb, renderPlates, toPngBlob, createCanvas } from './lib/composite.js';
 import { exportPuzzleZip, loadSourceImage, readPuzzleFiles, saveAs } from './lib/puzzleIO.js';
 import { solutionHash } from './lib/hash.js';
+import { generate as runGeneration } from './worker/generateClient.js';
+
+export {
+  BAND_MODES,
+  BAND_SPACES,
+  FALSE_MODES,
+  MAX_PLATES,
+  MAX_WEAVE,
+  MIN_PLATES,
+  OCCLUSION_MODES,
+  SOFT_PLATE_LIMIT,
+};
 
 export const ui = reactive({
   mode: 'creator',
@@ -18,12 +38,23 @@ export const ui = reactive({
 export const creator = reactive({
   source: null,
   plates: [],
-  numRealPlates: 3,
-  numFalsePlates: 2,
-  plateOpacity: 0.7,
-  fracture: 0,
+  plateCount: 3,
+  falseCount: 2,
+  opacity: 1,
+  bandSpace: 'channels',
+  bandMode: 'linear',
+  weave: 1,
+  cuts: null,
+  histograms: null,
+  falseMode: 'drift',
+  decoyIntensity: 0.6,
+  occlusionEnabled: false,
+  occlusionMode: 'fracture',
+  occlusionStrength: 0.6,
   shardSize: 32,
+  blendScale: 40,
   showOriginal: false,
+  engine: '',
 });
 
 export const solver = reactive({
@@ -48,9 +79,37 @@ export const activePlates = computed(() =>
   ui.mode === 'creator' ? creator.plates : solver.plates,
 );
 
-export const enabledPlates = computed(() => activePlates.value.filter((p) => p.enabled));
+export const enabledPlates = computed(() => activePlates.value.filter((plate) => plate.enabled));
 
-export const schemeLabel = computed(() => SCHEMES[creator.numRealPlates].label);
+/** Roughly how long the current settings will take to generate. */
+export const estimate = computed(() => {
+  if (!creator.source) return null;
+  const ms = estimateGenerationMs({
+    width: creator.source.width,
+    height: creator.source.height,
+    plateCount: creator.plateCount,
+    decoyCount: creator.falseCount,
+    occlusionMode: creator.occlusionEnabled ? creator.occlusionMode : 'none',
+    bandSpace: creator.bandSpace,
+  });
+  return {
+    ms,
+    text: describeDuration(ms),
+    slow: ms > 8000 || creator.plateCount > SOFT_PLATE_LIMIT,
+  };
+});
+
+/** The occlusion settings to generate with, or null when it is switched off. */
+const occlusionSettings = computed(() =>
+  creator.occlusionEnabled
+    ? {
+        mode: creator.occlusionMode,
+        strength: creator.occlusionStrength,
+        shardSize: creator.shardSize,
+        scale: creator.blendScale,
+      }
+    : null,
+);
 
 /* ---------------------------------------------------------------- creator */
 
@@ -68,8 +127,8 @@ export async function loadSource(file) {
         ? `Image loaded and scaled to ${source.width}×${source.height}`
         : `Image loaded (${source.width}×${source.height})`,
     );
-  } catch (err) {
-    setStatus('Could not read that image: ' + err.message, 'error');
+  } catch (error) {
+    setStatus('Could not read that image: ' + error.message, 'error');
   } finally {
     ui.busy = false;
   }
@@ -81,7 +140,7 @@ export function clearSource() {
   setStatus('Ready');
 }
 
-export async function generate() {
+export async function generatePlates() {
   if (!creator.source) return;
   const { data, width, height } = creator.source;
   ui.busy = true;
@@ -89,59 +148,55 @@ export async function generate() {
   await frame();
 
   try {
-    // Fracturing redistributes the bands shard by shard; the same shard map
-    // then shapes the decoys, so they share the real plates' structure.
-    const shards = creator.fracture > 0 ? buildShards(width, height, creator.shardSize) : null;
-    const fracture = shards
-      ? {
-          map: shards.map,
-          plans: buildShardPlans(shards.count, creator.numRealPlates, creator.fracture),
-        }
-      : null;
+    const { result, engine } = await runGeneration(
+      {
+        pixels: data.slice(),
+        width,
+        height,
+        settings: {
+          plateCount: creator.plateCount,
+          falseCount: creator.falseCount,
+          opacity: creator.opacity,
+          bandSpace: creator.bandSpace,
+          bandMode: creator.bandMode,
+          weave: creator.weave,
+          cuts: creator.bandMode === 'manual' ? toRaw(creator.cuts) : null,
+          falseMode: creator.falseMode,
+          decoyIntensity: creator.decoyIntensity,
+          occlusion: occlusionSettings.value,
+          seed: (Math.random() * 2 ** 32) >>> 0,
+        },
+      },
+      (text) => setStatus(text, 'busy'),
+    );
 
-    const real = splitPlates(
-      data,
+    creator.engine = engine;
+    // Keep the cuts and histograms the plan used, so the manual editor starts
+    // from whatever the automatic modes came up with.
+    creator.cuts = result.cuts;
+    creator.histograms = result.histograms;
+    creator.plates = result.plates.map((plate) => ({
+      id: uid(),
+      data: markRaw(plate.data),
       width,
       height,
-      creator.numRealPlates,
-      creator.plateOpacity,
-      fracture,
-    );
-    const plates = real.map((plate, i) => makePlate(plate, width, height, `Plate ${i + 1}`, false));
-
-    for (let i = 0; i < creator.numFalsePlates; i++) {
-      setStatus(`Generating false plate ${i + 1}/${creator.numFalsePlates}…`, 'busy');
-      await frame();
-      const fake = generateFalsePlate(real, width, height, shards);
-      plates.push(makePlate(fake, width, height, `Plate ${plates.length + 1} (False)`, true));
-    }
-
-    creator.plates = plates;
+      enabled: !plate.isFalse,
+      isFalse: plate.isFalse,
+      tint: plate.tint,
+      bandLabel: plate.bandLabel,
+      label: plate.label,
+      thumb: makeThumb(plate.data, width, height),
+    }));
     creator.showOriginal = false;
     setStatus(
-      `${real.length} chroma plates + ${creator.numFalsePlates} false plates ready` +
-        (shards ? ` · fractured into ${shards.count} shards` : ''),
+      `${creator.plateCount} chroma plates + ${creator.falseCount} decoys ready` +
+        (engine === 'main' ? ' (main thread)' : ''),
     );
-  } catch (err) {
-    setStatus('Generation failed: ' + err.message, 'error');
+  } catch (error) {
+    setStatus('Generation failed: ' + error.message, 'error');
   } finally {
     ui.busy = false;
   }
-}
-
-function makePlate(plate, width, height, label, isFalse) {
-  return {
-    id: uid(),
-    data: markRaw(plate.data),
-    width,
-    height,
-    enabled: !isFalse,
-    isFalse,
-    tint: plate.tint,
-    bandLabel: isFalse || !creator.fracture ? plate.bandLabel : `${plate.bandLabel} · fractured`,
-    label,
-    thumb: makeThumb(plate.data, width, height),
-  };
 }
 
 export async function exportPuzzle() {
@@ -154,16 +209,20 @@ export async function exportPuzzle() {
       plates: creator.plates,
       width: creator.source.width,
       height: creator.source.height,
-      numRealPlates: creator.numRealPlates,
-      numFalsePlates: creator.numFalsePlates,
-      plateOpacity: creator.plateOpacity,
-      fracture:
-        creator.fracture > 0 ? { strength: creator.fracture, shardSize: creator.shardSize } : null,
-      tints: SCHEMES[creator.numRealPlates].bands.map((b) => b.tint),
+      numRealPlates: creator.plateCount,
+      numFalsePlates: creator.falseCount,
+      plateOpacity: creator.opacity,
+      bandSpace: creator.bandSpace,
+      bandMode: creator.bandMode,
+      weave: creator.weave,
+      falseMode: creator.falseMode,
+      decoyIntensity: creator.decoyIntensity,
+      occlusion: occlusionSettings.value,
+      tints: creator.plates.filter((plate) => !plate.isFalse).map((plate) => plate.tint),
     });
     setStatus(`Exported ${meta.totalPlates} shuffled plates + puzzle.json`);
-  } catch (err) {
-    setStatus('Export failed: ' + err.message, 'error');
+  } catch (error) {
+    setStatus('Export failed: ' + error.message, 'error');
   } finally {
     ui.busy = false;
   }
@@ -185,23 +244,24 @@ export async function loadPlates(files) {
     }
     const width = plates[0].width;
     const height = plates[0].height;
-    const mismatched = plates.filter((p) => p.width !== width || p.height !== height);
+    const mismatched = plates.filter((plate) => plate.width !== width || plate.height !== height);
     if (mismatched.length) {
       solver.error =
-        'All plates must share one size. Ignored: ' + mismatched.map((p) => p.filename).join(', ');
+        'All plates must share one size. Ignored: ' +
+        mismatched.map((plate) => plate.filename).join(', ');
     }
-    const usable = plates.filter((p) => p.width === width && p.height === height);
+    const usable = plates.filter((plate) => plate.width === width && plate.height === height);
 
-    solver.plates = usable.map((p, i) => ({
+    solver.plates = usable.map((plate) => ({
       id: uid(),
-      filename: p.filename,
-      data: markRaw(p.data),
+      filename: plate.filename,
+      data: markRaw(plate.data),
       width,
       height,
       enabled: true,
-      tint: averageTint(p.data, width, height),
-      thumb: makeThumb(p.data, width, height),
-      label: p.filename.replace(/\.png$/i, ''),
+      tint: averageTint(plate.data, width, height),
+      thumb: makeThumb(plate.data, width, height),
+      label: plate.filename.replace(/\.png$/i, ''),
     }));
     solver.width = width;
     solver.height = height;
@@ -212,9 +272,9 @@ export async function loadPlates(files) {
       `${solver.plates.length} plates loaded (${width}×${height})` +
         (meta ? ' · puzzle.json found' : ''),
     );
-  } catch (err) {
-    solver.error = err.message;
-    setStatus('Could not load plates: ' + err.message, 'error');
+  } catch (error) {
+    solver.error = error.message;
+    setStatus('Could not load plates: ' + error.message, 'error');
   } finally {
     ui.busy = false;
   }
@@ -242,8 +302,9 @@ export function setAllEnabled(value) {
 }
 
 export function soloPlate(plate) {
-  const only = activePlates.value.filter((p) => p.enabled).length === 1 && plate.enabled;
-  for (const p of activePlates.value) p.enabled = only ? true : p === plate;
+  const alreadySolo =
+    activePlates.value.filter((entry) => entry.enabled).length === 1 && plate.enabled;
+  for (const entry of activePlates.value) entry.enabled = alreadySolo ? true : entry === plate;
   checkSolution();
 }
 
@@ -254,7 +315,7 @@ export async function checkSolution() {
     solver.solved = false;
     return;
   }
-  const names = solver.plates.filter((p) => p.enabled).map((p) => p.filename);
+  const names = solver.plates.filter((plate) => plate.enabled).map((plate) => plate.filename);
   solver.solved = names.length > 0 && (await solutionHash(names)) === hash;
 }
 
@@ -270,8 +331,8 @@ export async function exportSolution() {
     const canvas = renderPlates(createCanvas(width, height), plates, width, height);
     saveAs(await toPngBlob(canvas), 'solution.png');
     setStatus(`Exported solution.png from ${plates.length} plates`);
-  } catch (err) {
-    setStatus('Export failed: ' + err.message, 'error');
+  } catch (error) {
+    setStatus('Export failed: ' + error.message, 'error');
   } finally {
     ui.busy = false;
   }
