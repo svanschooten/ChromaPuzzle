@@ -11,8 +11,8 @@ False plates act as decoys to increase difficulty.
 Run `npm install && npm run build`, then open `chroma-puzzle.html` in any
 modern browser. It is a single self-contained page — Vue, JSZip, and the styles
 are inlined, nothing is fetched at runtime, and it works straight off the
-filesystem with no server. Published releases are also deployed to GitHub
-Pages.
+filesystem with no server. Published releases are also deployed to (GitHub
+Pages)[https://svanschooten.github.io/ChromaPuzzle/].
 
 ## Development
 
