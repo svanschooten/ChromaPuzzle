@@ -132,6 +132,32 @@ async function main() {
   );
   await page.locator('.toggle-row.false-plate input[type=checkbox]').first().uncheck();
 
+  // How concentrated a plate is in one colour channel: 1.0 means a pure band.
+  const channelConcentration = (index) =>
+    page.evaluate((i) => {
+      const img = document.querySelectorAll('.panel.right .card img')[i];
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      c.getContext('2d').drawImage(img, 0, 0);
+      const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+      const sums = [0, 0, 0];
+      for (let k = 0; k < d.length; k += 4) {
+        sums[0] += d[k];
+        sums[1] += d[k + 1];
+        sums[2] += d[k + 2];
+      }
+      const total = sums[0] + sums[1] + sums[2] || 1;
+      return Math.max(...sums) / total;
+    }, index);
+
+  const plainConcentration = await channelConcentration(0);
+  check(
+    'an unfractured plate is a single colour band',
+    plainConcentration > 0.9,
+    `${(plainConcentration * 100).toFixed(1)}% of its energy in one channel`,
+  );
+
   // The 2- and 4-plate schemes use different maths; both must still reconstruct.
   for (const count of [2, 4]) {
     await page.fill('#c-real', String(count));
@@ -158,6 +184,36 @@ async function main() {
   await page.click('button.primary:has-text("Regenerate Plates")');
   await page.waitForSelector('.panel.right .card');
   await page.waitForTimeout(300);
+
+  // Fracture: the picture must still come back, but no plate may still be a
+  // readable single band.
+  await page.fill('#c-fracture', '0.6');
+  await page.dispatchEvent('#c-fracture', 'input');
+  await page.click('button.primary:has-text("Regenerate Plates")');
+  await page.waitForSelector('.panel.right .card');
+  await page.waitForTimeout(800);
+
+  const fracturedBlend = await readCanvas();
+  let fractureSum = 0;
+  let fractureCount = 0;
+  for (let i = 0; i < fracturedBlend.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      fractureSum += Math.abs(fracturedBlend[i + c] - sourceRgb[i + c]);
+      fractureCount++;
+    }
+  }
+  check(
+    'fractured plates still reconstruct the source',
+    fractureSum / fractureCount < 4,
+    `mean abs error ${(fractureSum / fractureCount).toFixed(2)}/255`,
+  );
+
+  const fracturedConcentration = await channelConcentration(0);
+  check(
+    'fracturing mixes the bands across plates',
+    fracturedConcentration < 0.75,
+    `${(fracturedConcentration * 100).toFixed(1)}% of its energy in one channel`,
+  );
 
   const download = await Promise.all([
     page.waitForEvent('download'),

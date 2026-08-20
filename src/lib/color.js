@@ -1,54 +1,75 @@
-// Color helpers shared by the splitter and the false-plate generator.
+// Colour helpers shared by the splitter and the false-plate generator.
 
 export const clamp255 = (v) => Math.max(0, Math.min(255, Math.round(v)));
-const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
 export const rgbCss = (t) => `rgb(${t[0]}, ${t[1]}, ${t[2]})`;
 
-function rgbToHsl([r, g, b]) {
-  r /= 255;
-  g /= 255;
-  b /= 255;
-  const max = Math.max(r, g, b),
-    min = Math.min(r, g, b);
-  const l = (max + min) / 2;
-  let h = 0,
-    s = 0;
-  if (max !== min) {
-    const d = max - min;
-    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
-    if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
-    else if (max === g) h = (b - r) / d + 2;
-    else h = (r - g) / d + 4;
-    h *= 60;
-  }
-  return { h, s, l };
-}
+const LUMA = [0.213, 0.715, 0.072];
 
-function hslToRgb({ h, s, l }) {
-  h = ((h % 360) + 360) % 360;
-  const c = (1 - Math.abs(2 * l - 1)) * s;
-  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
-  const m = l - c / 2;
-  let rgb;
-  if (h < 60) rgb = [c, x, 0];
-  else if (h < 120) rgb = [x, c, 0];
-  else if (h < 180) rgb = [0, c, x];
-  else if (h < 240) rgb = [0, x, c];
-  else if (h < 300) rgb = [x, 0, c];
-  else rgb = [c, 0, x];
-  return rgb.map((v) => clamp255((v + m) * 255));
-}
+const multiply = (a, b) => {
+  const out = new Float32Array(9);
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 3; col++) {
+      out[row * 3 + col] =
+        a[row * 3] * b[col] + a[row * 3 + 1] * b[3 + col] + a[row * 3 + 2] * b[6 + col];
+    }
+  }
+  return out;
+};
+
+const saturationMatrix = (s) =>
+  new Float32Array([
+    LUMA[0] + (1 - LUMA[0]) * s,
+    LUMA[1] - LUMA[1] * s,
+    LUMA[2] - LUMA[2] * s,
+    LUMA[0] - LUMA[0] * s,
+    LUMA[1] + (1 - LUMA[1]) * s,
+    LUMA[2] - LUMA[2] * s,
+    LUMA[0] - LUMA[0] * s,
+    LUMA[1] - LUMA[1] * s,
+    LUMA[2] + (1 - LUMA[2]) * s,
+  ]);
+
+const hueMatrix = (degrees) => {
+  const radians = (degrees * Math.PI) / 180;
+  const c = Math.cos(radians);
+  const s = Math.sin(radians);
+  return new Float32Array([
+    0.213 + c * 0.787 - s * 0.213,
+    0.715 - c * 0.715 - s * 0.715,
+    0.072 - c * 0.072 + s * 0.928,
+    0.213 - c * 0.213 + s * 0.143,
+    0.715 + c * 0.285 + s * 0.14,
+    0.072 - c * 0.072 - s * 0.283,
+    0.213 - c * 0.213 - s * 0.787,
+    0.715 - c * 0.715 + s * 0.715,
+    0.072 + c * 0.928 + s * 0.072,
+  ]);
+};
 
 const rand = (min, max) => min + Math.random() * (max - min);
 
-/** Shift a plate tint just far enough to look plausible but reconstruct wrong. */
-export function driftTint(tint) {
-  const hsl = rgbToHsl(tint);
-  hsl.h = (((hsl.h + rand(-20, 20)) % 360) + 360) % 360;
-  hsl.s = clamp01(hsl.s * rand(0.7, 1.3));
-  hsl.l = clamp01(hsl.l * rand(0.85, 1.15));
-  // A fully desaturated or black template would drift into an invisible plate.
-  if (hsl.l < 0.15) hsl.l = 0.15 + Math.random() * 0.1;
-  return hslToRgb(hsl);
+/**
+ * A colour transform that shifts hue, saturation and lightness just far enough
+ * to look plausible but reconstruct wrong (design doc 2.3, expressed as a
+ * matrix so it can be applied per shard at a few multiplies per pixel).
+ */
+export function driftMatrix() {
+  const matrix = multiply(hueMatrix(rand(-20, 20)), saturationMatrix(rand(0.7, 1.3)));
+  const lightness = rand(0.85, 1.15);
+  for (let i = 0; i < 9; i++) matrix[i] *= lightness;
+  return matrix;
+}
+
+/** Applies a 3×3 colour matrix, writing clamped bytes into `out` at `offset`. */
+export function applyMatrix(matrix, offset, r, g, b, out, at) {
+  out[at] = clamp255(matrix[offset] * r + matrix[offset + 1] * g + matrix[offset + 2] * b);
+  out[at + 1] = clamp255(matrix[offset + 3] * r + matrix[offset + 4] * g + matrix[offset + 5] * b);
+  out[at + 2] = clamp255(matrix[offset + 6] * r + matrix[offset + 7] * g + matrix[offset + 8] * b);
+}
+
+export function tintThrough(matrix, tint) {
+  const out = new Uint8ClampedArray(3);
+  applyMatrix(matrix, 0, tint[0], tint[1], tint[2], out, 0);
+  return [out[0], out[1], out[2]];
 }

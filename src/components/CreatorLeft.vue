@@ -74,12 +74,47 @@ import { creator, generate, loadSource, clearSource, schemeLabel, ui } from '../
         />
         <div class="scale"><span>0.3</span><span>0.7</span><span>1.0</span></div>
       </div>
+
+      <div class="control">
+        <div class="row">
+          <label for="c-fracture">Fracture</label>
+          <span class="val">{{ Math.round(creator.fracture * 100) }}%</span>
+        </div>
+        <input
+          id="c-fracture"
+          type="range"
+          min="0"
+          max="1"
+          step="0.05"
+          v-model.number="creator.fracture"
+        />
+        <div class="scale"><span>off</span><span>50%</span><span>100%</span></div>
+      </div>
+      <div class="control" v-if="creator.fracture > 0">
+        <div class="row">
+          <label for="c-shard">Shard Size</label>
+          <span class="val">{{ creator.shardSize }} px</span>
+        </div>
+        <input
+          id="c-shard"
+          type="range"
+          min="12"
+          max="96"
+          step="4"
+          v-model.number="creator.shardSize"
+        />
+        <div class="scale"><span>12</span><span>48</span><span>96</span></div>
+      </div>
       <div class="note">
         Scheme: {{ schemeLabel
         }}<span v-if="creator.plateOpacity < 1">
           · colours boosted {{ (1 / creator.plateOpacity).toFixed(2) }}×, so bright highlights may
           clip</span
         >
+      </div>
+      <div class="note" v-if="creator.fracture > 0">
+        Fracturing swaps the bands between plates shard by shard, so no single plate reads as the
+        picture. The stack still reconstructs it exactly.
       </div>
       <button class="primary" :disabled="!creator.source || ui.busy" @click="generate">
         <span v-if="ui.busy" class="spinner" aria-hidden="true"></span>

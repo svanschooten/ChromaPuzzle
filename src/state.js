@@ -2,6 +2,7 @@
 import { computed, markRaw, reactive } from 'vue';
 import { splitPlates, SCHEMES } from './lib/split.js';
 import { generateFalsePlate } from './lib/falsePlate.js';
+import { buildShardPlans, buildShards } from './lib/fracture.js';
 import { averageTint, makeThumb, renderPlates, toPngBlob, createCanvas } from './lib/composite.js';
 import { exportPuzzleZip, loadSourceImage, readPuzzleFiles, saveAs } from './lib/puzzleIO.js';
 import { solutionHash } from './lib/hash.js';
@@ -20,6 +21,8 @@ export const creator = reactive({
   numRealPlates: 3,
   numFalsePlates: 2,
   plateOpacity: 0.7,
+  fracture: 0,
+  shardSize: 32,
   showOriginal: false,
 });
 
@@ -86,19 +89,39 @@ export async function generate() {
   await frame();
 
   try {
-    const real = splitPlates(data, width, height, creator.numRealPlates, creator.plateOpacity);
+    // Fracturing redistributes the bands shard by shard; the same shard map
+    // then shapes the decoys, so they share the real plates' structure.
+    const shards = creator.fracture > 0 ? buildShards(width, height, creator.shardSize) : null;
+    const fracture = shards
+      ? {
+          map: shards.map,
+          plans: buildShardPlans(shards.count, creator.numRealPlates, creator.fracture),
+        }
+      : null;
+
+    const real = splitPlates(
+      data,
+      width,
+      height,
+      creator.numRealPlates,
+      creator.plateOpacity,
+      fracture,
+    );
     const plates = real.map((plate, i) => makePlate(plate, width, height, `Plate ${i + 1}`, false));
 
     for (let i = 0; i < creator.numFalsePlates; i++) {
       setStatus(`Generating false plate ${i + 1}/${creator.numFalsePlates}…`, 'busy');
       await frame();
-      const fake = generateFalsePlate(real, width, height);
+      const fake = generateFalsePlate(real, width, height, shards);
       plates.push(makePlate(fake, width, height, `Plate ${plates.length + 1} (False)`, true));
     }
 
     creator.plates = plates;
     creator.showOriginal = false;
-    setStatus(`${real.length} chroma plates + ${creator.numFalsePlates} false plates ready`);
+    setStatus(
+      `${real.length} chroma plates + ${creator.numFalsePlates} false plates ready` +
+        (shards ? ` · fractured into ${shards.count} shards` : ''),
+    );
   } catch (err) {
     setStatus('Generation failed: ' + err.message, 'error');
   } finally {
@@ -115,7 +138,7 @@ function makePlate(plate, width, height, label, isFalse) {
     enabled: !isFalse,
     isFalse,
     tint: plate.tint,
-    bandLabel: plate.bandLabel,
+    bandLabel: isFalse || !creator.fracture ? plate.bandLabel : `${plate.bandLabel} · fractured`,
     label,
     thumb: makeThumb(plate.data, width, height),
   };
@@ -134,6 +157,8 @@ export async function exportPuzzle() {
       numRealPlates: creator.numRealPlates,
       numFalsePlates: creator.numFalsePlates,
       plateOpacity: creator.plateOpacity,
+      fracture:
+        creator.fracture > 0 ? { strength: creator.fracture, shardSize: creator.shardSize } : null,
       tints: SCHEMES[creator.numRealPlates].bands.map((b) => b.tint),
     });
     setStatus(`Exported ${meta.totalPlates} shuffled plates + puzzle.json`);
