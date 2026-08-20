@@ -1,0 +1,39 @@
+version: 2
+updates:
+  - package-ecosystem: 'npm'
+    directory: '/'
+    schedule:
+      interval: 'daily'
+    cooldown:
+      default-days: 5
+    open-pull-requests-limit: 5
+    labels:
+      - 'dependencies'
+    # Minor and patch bumps arrive as two grouped PRs a day at most; majors
+    # still come in one at a time so they can be reviewed on their own.
+    groups:
+      runtime-dependencies:
+        dependency-type: 'production'
+        update-types:
+          - 'minor'
+          - 'patch'
+      dev-tooling:
+        dependency-type: 'development'
+        update-types:
+          - 'minor'
+          - 'patch'
+
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'daily'
+    cooldown:
+      default-days: 5
+    open-pull-requests-limit: 5
+    labels:
+      - 'dependencies'
+      - 'github-actions'
+    groups:
+      github-actions:
+        patterns:
+          - '*'

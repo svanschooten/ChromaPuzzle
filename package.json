@@ -1,0 +1,38 @@
+{
+  "name": "chroma-puzzle",
+  "version": "1.0.0",
+  "description": "Create and solve chroma puzzles in the browser",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build && cp dist/index.html chroma-puzzle.html",
+    "preview": "vite preview",
+    "test": "node test/e2e.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/svanschooten/ChromaPuzzle.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/svanschooten/ChromaPuzzle/issues"
+  },
+  "homepage": "https://github.com/svanschooten/ChromaPuzzle#readme",
+  "dependencies": {
+    "file-saver": "^2.0.5",
+    "jszip": "^3.10.1",
+    "vue": "^3.5.41"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.8",
+    "playwright": "^1.62.1",
+    "prettier": "^3.9.6",
+    "vite": "^8.2.2",
+    "vite-plugin-singlefile": "^2.3.3"
+  },
+  "type": "module",
+  "private": true
+}

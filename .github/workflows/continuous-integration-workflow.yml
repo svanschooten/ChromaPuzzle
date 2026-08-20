@@ -1,0 +1,140 @@
+name: Chroma Puzzle CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - '*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 1
+
+jobs:
+  configure:
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
+    outputs:
+      ref: ${{ steps.resolve.outputs.ref }}
+    steps:
+      - name: Resolve the commit under test
+        id: resolve
+        run: echo "ref=${{ github.event.pull_request.head.sha || github.sha }}" >> "$GITHUB_OUTPUT"
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: configure
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.configure.outputs.ref }}
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+      - run: npm ci
+      - name: Install the test browser
+        run: npx playwright install --with-deps chromium
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: 0
+      - name: Build the single page
+        run: npm run build
+      - name: Run the end-to-end suite
+        run: npm test
+
+  formatting:
+    runs-on: ubuntu-slim
+    timeout-minutes: 10
+    if: github.actor != 'dependabot[bot]' && github.ref != 'refs/heads/main'
+    needs: configure
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.configure.outputs.ref }}
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+      - run: npm ci
+      - name: Check formatting
+        run: npm run format:check
+
+  fallow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: github.actor != 'dependabot[bot]' && github.ref != 'refs/heads/main'
+    needs: configure
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.configure.outputs.ref }}
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+      - run: npm ci
+      - name: Run fallow code analysis
+        continue-on-error: true
+        id: fallow
+        run: |
+          set +e
+          npx fallow > fallow-raw.txt 2>&1
+          EXIT_CODE=$?
+          sed 's/\x1b\[[0-9;]*m//g' fallow-raw.txt > fallow-output.txt
+          cat fallow-output.txt
+          if [ $EXIT_CODE -eq 0 ]; then
+            echo "status=✅ No issues detected" >> "$GITHUB_OUTPUT"
+          else
+            echo "status=⚠️ Issues detected" >> "$GITHUB_OUTPUT"
+          fi
+          exit $EXIT_CODE
+      - name: Publish the analysis
+        if: always()
+        run: |
+          {
+            echo "## Fallow: ${{ steps.fallow.outputs.status }}"
+            echo '```'
+            tail -c 60000 fallow-output.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [configure, test]
+    if: |
+      github.actor != 'dependabot[bot]' &&
+      (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          ref: ${{ needs.configure.outputs.ref }}
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm run build
+      - name: Check the committed single page is up to date
+        run: |
+          if ! git diff --quiet -- chroma-puzzle.html; then
+            git --no-pager diff --stat -- chroma-puzzle.html
+            echo "::error file=chroma-puzzle.html::chroma-puzzle.html is stale — run 'npm run build' and commit the result"
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v7
+        with:
+          name: chroma-puzzle-page
+          path: dist/index.html
+          if-no-files-found: error
