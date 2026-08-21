@@ -44,6 +44,7 @@ export const creator = reactive({
   bandSpace: 'channels',
   bandMode: 'linear',
   weave: 1,
+  cells: { hue: 6, chroma: 4, value: 5, hard: false },
   cuts: null,
   histograms: null,
   falseMode: 'drift',
@@ -91,6 +92,7 @@ export const estimate = computed(() => {
     decoyCount: creator.falseCount,
     occlusionMode: creator.occlusionEnabled ? creator.occlusionMode : 'none',
     bandSpace: creator.bandSpace,
+    hardCells: creator.cells.hard,
   });
   return {
     ms,
@@ -160,6 +162,7 @@ export async function generatePlates() {
           bandSpace: creator.bandSpace,
           bandMode: creator.bandMode,
           weave: creator.weave,
+          cells: toRaw(creator.cells),
           cuts: creator.bandMode === 'manual' ? toRaw(creator.cuts) : null,
           falseMode: creator.falseMode,
           decoyIntensity: creator.decoyIntensity,
@@ -185,12 +188,20 @@ export async function generatePlates() {
       tint: plate.tint,
       bandLabel: plate.bandLabel,
       label: plate.label,
+      weak: plate.weak,
       thumb: makeThumb(plate.data, width, height),
     }));
     creator.showOriginal = false;
+    const weak = creator.plates.filter((plate) => plate.weak && !plate.isFalse).length;
+    const advice =
+      creator.bandSpace === 'cells'
+        ? ' — raise the cell classes, or soften them'
+        : ' — try fewer plates';
     setStatus(
       `${creator.plateCount} chroma plates + ${creator.falseCount} decoys ready` +
-        (engine === 'main' ? ' (main thread)' : ''),
+        (engine === 'main' ? ' (main thread)' : '') +
+        (weak ? ` · ${weak} plate${weak > 1 ? 's are' : ' is'} nearly empty${advice}` : ''),
+      weak ? 'busy' : '',
     );
   } catch (error) {
     setStatus('Generation failed: ' + error.message, 'error');
@@ -215,6 +226,7 @@ export async function exportPuzzle() {
       bandSpace: creator.bandSpace,
       bandMode: creator.bandMode,
       weave: creator.weave,
+      cells: creator.bandSpace === 'cells' ? { ...creator.cells } : null,
       falseMode: creator.falseMode,
       decoyIntensity: creator.decoyIntensity,
       occlusion: occlusionSettings.value,

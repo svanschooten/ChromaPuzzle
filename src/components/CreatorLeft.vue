@@ -22,7 +22,14 @@ import {
 const BAND_SPACE_COPY = {
   channels: { label: 'Channels', hint: 'Tonal slices of red, green and blue' },
   spectrum: { label: 'Spectrum', hint: 'Arcs of the hue wheel, even at any plate count' },
+  cells: { label: 'Cells', hint: 'Hue × chroma × value cells, summed onto plates' },
 };
+const CELL_AXIS_COPY = {
+  hue: { label: 'Hue classes', hint: 'where on the wheel' },
+  chroma: { label: 'Chroma classes', hint: 'how colourful' },
+  value: { label: 'Value classes', hint: 'how bright' },
+};
+const CELL_AXES = Object.keys(CELL_AXIS_COPY);
 const BAND_MODE_COPY = {
   linear: { label: 'Linear', hint: 'Equal-width slices' },
   weighted: { label: 'Weighted', hint: 'Cuts placed so every band carries equal image' },
@@ -43,6 +50,27 @@ const FALSE_MODE_CHOICES = describe(FALSE_MODES, FALSE_MODE_COPY);
 const OCCLUSION_CHOICES = describe(OCCLUSION_MODES, OCCLUSION_COPY);
 const BAND_SPACE_CHOICES = describe(BAND_SPACES, BAND_SPACE_COPY);
 const BAND_MODE_CHOICES = describe(BAND_MODES, BAND_MODE_COPY);
+
+const CELL_STRIPS = {
+  hue: {
+    label: 'Hue cuts',
+    max: 360,
+    ring: true,
+    gradient: 'linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00)',
+  },
+  chroma: {
+    label: 'Chroma cuts',
+    max: 255,
+    ring: false,
+    gradient: 'linear-gradient(to right, #777, #f22)',
+  },
+  value: {
+    label: 'Value cuts',
+    max: 255,
+    ring: false,
+    gradient: 'linear-gradient(to right, #000, #fff)',
+  },
+};
 
 const CHANNEL_STRIPS = [
   { label: 'Red cuts', gradient: 'linear-gradient(to right, #000, #f33)' },
@@ -154,7 +182,38 @@ function setChannelCuts(channel, cuts) {
         :choices="BAND_MODE_CHOICES"
       />
 
-      <div class="control">
+      <template v-if="creator.bandSpace === 'cells'">
+        <div class="control" v-for="axis in CELL_AXES" :key="axis">
+          <div class="row">
+            <label :for="`c-cell-${axis}`">{{ CELL_AXIS_COPY[axis].label }}</label>
+            <span class="val">{{ creator.cells[axis] === 1 ? 'off' : creator.cells[axis] }}</span>
+          </div>
+          <input
+            :id="`c-cell-${axis}`"
+            type="range"
+            min="1"
+            max="12"
+            step="1"
+            :value="creator.cells[axis]"
+            @input="creator.cells = { ...creator.cells, [axis]: Number($event.target.value) }"
+          />
+          <div class="scale">
+            <span>{{ CELL_AXIS_COPY[axis].hint }}</span
+            ><span>1 = off</span>
+          </div>
+        </div>
+        <label class="checkrow">
+          <input
+            id="c-cell-hard"
+            type="checkbox"
+            :checked="creator.cells.hard"
+            @change="creator.cells = { ...creator.cells, hard: $event.target.checked }"
+          />
+          Hard cells — every pixel lands on one plate
+        </label>
+      </template>
+
+      <div class="control" v-else>
         <div class="row">
           <label for="c-weave">Weave</label>
           <span class="val">{{ creator.weave === 1 ? 'off' : `×${creator.weave}` }}</span>
@@ -178,6 +237,19 @@ function setChannelCuts(channel, cuts) {
 
       <template v-if="creator.bandMode === 'manual'">
         <div class="note" v-if="!creator.cuts">Generate once to load the cuts, then drag them.</div>
+        <template v-else-if="creator.bandSpace === 'cells'">
+          <BandCuts
+            v-for="axis in CELL_AXES"
+            :key="axis"
+            v-show="creator.cells[axis] > 1"
+            :label="CELL_STRIPS[axis].label"
+            :max="CELL_STRIPS[axis].max"
+            :gradient="CELL_STRIPS[axis].gradient"
+            :histogram="creator.histograms?.[axis]"
+            :model-value="creator.cuts[axis]"
+            @update:model-value="creator.cuts = { ...creator.cuts, [axis]: $event }"
+          />
+        </template>
         <template v-else-if="creator.bandSpace === 'spectrum'">
           <BandCuts
             label="Hue cuts"

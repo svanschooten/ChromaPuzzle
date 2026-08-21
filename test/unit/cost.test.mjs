@@ -32,3 +32,10 @@ test('durations read as plain english', () => {
   assert.equal(describeDuration(4200), 'about 4s');
   assert.match(describeDuration(120000), /minutes/);
 });
+
+test('colour cells cost more than channels, and hard cells less than soft', () => {
+  const cells = (hardCells) => estimateGenerationMs({ ...base, bandSpace: 'cells', hardCells });
+  const channels = estimateGenerationMs({ ...base, bandSpace: 'channels' });
+  assert.ok(cells(false) > cells(true));
+  assert.ok(cells(true) > channels);
+});

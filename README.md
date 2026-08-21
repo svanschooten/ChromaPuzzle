@@ -37,8 +37,8 @@ npm run build
 
 1. Upload an image (PNG/JPG/WebP)
 2. Choose 2–16 real chroma plates and 0–16 decoys
-3. Pick the band space (channels or spectrum), how the cuts are placed, whether
-   to weave them, how decoys are built, and whether to occlude the plates
+3. Pick the band space (channels, spectrum or cells), how the cuts are placed,
+   whether to weave them, how decoys are built, and whether to occlude the plates
 4. Preview the blended result with per-plate toggles
 5. Export a ZIP of shuffled plate PNGs plus a `puzzle.json` metadata file
 
@@ -77,6 +77,7 @@ owns:
 | ------------ | ------------------------------------------------------------------ |
 | **Channels** | A tonal interval of one or more RGB channels                       |
 | **Spectrum** | An arc of the hue wheel, plus a tonal slice of the achromatic part |
+| **Cells**    | A set of hue × chroma × value cells of colour space                |
 
 Additive compositing is linear in RGB, so a color cannot be _converted_ into
 hue components that add back up. Splitting works instead: a pixel's chroma is
@@ -99,6 +100,32 @@ would otherwise leave four of six plates carrying nothing but grey.
 Two plates cannot give each channel its own band, so channels group up (warm
 `R+G` against cool `B`). Weighted mode groups channels the image barely uses for
 the same reason.
+
+### Colour cells
+
+Cells sort a pixel by three axes at once — hue, chroma and value — and send it
+to plate `(hue class + chroma class + value class) mod plates`.
+
+Summing is what makes it work. Requiring all three classes to agree would leave
+most pixels on no plate at all; the sum lands every combination on exactly one
+plate, and since each axis hands out weights totalling 1, the plates still add
+back up to the image.
+
+Chroma stands in for saturation deliberately: saturation is chroma ÷ value, so a
+nearly black pixel can read as fully saturated, while chroma stays steady in the
+shadows. Any axis set to 1 class is switched off.
+
+**Soft** shares a pixel between the neighbouring cells, which fades the picture
+across every plate. **Hard** sends each pixel to one plate, cutting the image
+into flat regions of colour space.
+
+When the axes correlate — hue, chroma and value all rising together — the sum
+lands on a sublattice and some plates starve. Weighted mode fixes that by
+balancing the cells across plates after seeding them with the sum: on a test
+image where plain summing left two plates with 0.1% of the picture each, it
+brought the spread from 768× down to 7×. A flat region of colour is a single
+cell and cannot be divided, so images with few distinct colours can still leave
+plates empty. The status bar says so when it happens.
 
 ### Weave
 
@@ -179,7 +206,9 @@ Measured at 1200×900, split only:
 | 8      | 124ms | 954ms    | 1408ms | 1315ms |
 | 16     | 174ms | 2192ms   | 4350ms | 4755ms |
 
-Decoys stay near-flat (200ms → 506ms across the same range): without occlusion a
+A cells split costs roughly twice a channels split, and grows the same way with
+plate count; hard cells are cheaper than soft. Decoys stay near-flat (200ms →
+506ms across the same range): without occlusion a
 band goes straight to its plate, and a decoy — one plate, never part of the sum —
 skips the cumulative pass over the others.
 
@@ -197,6 +226,8 @@ src/
   lib/
     bands/
       index.js        band planning: spaces, modes, weave, limits
+      cells.js        hue × chroma × value cells summed onto plates
+      router.js       routing one axis of colour space to classes
       channels.js     tonal slices of RGB channels
       spectrum.js     hue arcs plus achromatic slices
       cuts.js         linear, histogram-weighted and hand-placed cuts
@@ -238,7 +269,8 @@ give nothing away:
   "numFalsePlates": 3,
   "totalPlates": 9,
   "plateOpacity": 1,
-  "bandSpace": "spectrum",
+  "bandSpace": "cells",
+  "cells": { "hue": 6, "chroma": 4, "value": 5, "hard": true },
   "bandMode": "weighted",
   "weave": 3,
   "falseMode": "warp",

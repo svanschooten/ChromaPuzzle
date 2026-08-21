@@ -17,7 +17,10 @@ const SPLIT = {
 
 const DECOY = { base: 90, linear: 24 };
 const DECOY_WEIGHT = { none: 0.4, fracture: 1, blend: 1.3, noise: 1.3 };
-const SPECTRUM_PENALTY = 1.25; // hue has to be worked out per pixel
+// Channels reads a lookup table; spectrum works hue out per pixel; cells routes
+// through colour space, which costs about twice as much again (less when the
+// cells are hard, since a pixel then lands on a single plate).
+const SPACE_PENALTY = { channels: 1, spectrum: 1.25, cells: 2.2, cellsHard: 1.5 };
 
 /** @returns {number} milliseconds, very approximately. */
 export function estimateGenerationMs({
@@ -27,6 +30,7 @@ export function estimateGenerationMs({
   decoyCount = 0,
   occlusionMode = 'none',
   bandSpace = 'channels',
+  hardCells = false,
 }) {
   const megapixels = (width * height) / 1e6;
   const mode = SPLIT[occlusionMode] ? occlusionMode : 'none';
@@ -38,7 +42,8 @@ export function estimateGenerationMs({
     split.quadratic * plateCount * plateCount +
     decoyCount * DECOY_WEIGHT[mode] * (DECOY.base + DECOY.linear * plateCount);
 
-  return megapixels * perMegapixel * (bandSpace === 'spectrum' ? SPECTRUM_PENALTY : 1);
+  const space = bandSpace === 'cells' && hardCells ? 'cellsHard' : bandSpace;
+  return megapixels * perMegapixel * (SPACE_PENALTY[space] ?? 1);
 }
 
 export function describeDuration(ms) {

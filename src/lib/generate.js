@@ -25,6 +25,7 @@ export function generatePuzzle({ pixels, width, height, settings, onProgress = (
     mode: bandMode,
     weave: settings.weave,
     cuts: settings.cuts,
+    cells: settings.cells,
   });
 
   const field = occlusion
@@ -73,10 +74,26 @@ export function generatePuzzle({ pixels, width, height, settings, onProgress = (
     });
   }
 
+  // A plate with nothing on it cannot be told apart by eye or by blend, so the
+  // solver would only be guessing about it. Worth reporting back.
+  for (const plate of plates) plate.weak = isNearlyEmpty(plate.data);
+
   return {
     plates,
     cuts: plan.cuts,
     histograms: plan.histograms,
     shardCount: field?.shards?.count ?? 0,
   };
+}
+
+/** True when a plate carries almost no light at all. */
+export function isNearlyEmpty(data) {
+  const step = Math.max(4, Math.floor(data.length / 40000)) * 4;
+  let sum = 0;
+  let samples = 0;
+  for (let i = 0; i < data.length; i += step) {
+    sum += data[i] + data[i + 1] + data[i + 2];
+    samples += 3;
+  }
+  return samples > 0 && sum / samples < 1.5;
 }

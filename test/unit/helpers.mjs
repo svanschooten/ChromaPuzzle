@@ -50,3 +50,53 @@ export function maxReconstructionError(plates, source, pixelCount) {
   }
   return worst;
 }
+
+/** A picture with several hues, a bright-to-dark range and washed-out areas. */
+export function colourful(width, height) {
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const j = (y * width + x) * 4;
+      const hue = ((x / width) * 360 + (y % 3) * 40) % 360;
+      const sector = hue / 60;
+      const fade = 0.25 + 0.75 * (y / height);
+      const mix = Math.round(255 * (1 - Math.abs((sector % 2) - 1)));
+      const wheel = [
+        [255, mix, 0],
+        [mix, 255, 0],
+        [0, 255, mix],
+        [0, mix, 255],
+        [mix, 0, 255],
+        [255, 0, mix],
+      ][Math.min(5, Math.floor(sector))];
+      const grey = (x * 37 + y * 11) % 90;
+      pixels[j] =
+        Math.round(wheel[0] * fade) + grey > 255 ? 255 : Math.round(wheel[0] * fade) + grey;
+      pixels[j + 1] = Math.min(255, Math.round(wheel[1] * fade) + grey);
+      pixels[j + 2] = Math.min(255, Math.round(wheel[2] * fade) + grey);
+      pixels[j + 3] = 255;
+    }
+  }
+  return pixels;
+}
+
+/**
+ * The awkward case for colour cells: hue, chroma and value all rise together,
+ * so the class numbers move in lockstep and their sum lands on a sublattice.
+ */
+export function correlated(width, height) {
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const t = (x + y) / (width + height - 2);
+      const value = Math.round(40 + 200 * t);
+      const chroma = Math.round(20 + 150 * t);
+      const j = (y * width + x) * 4;
+      pixels[j] = value;
+      pixels[j + 1] = Math.max(0, value - Math.round(chroma * 0.6));
+      pixels[j + 2] = Math.max(0, value - chroma);
+      pixels[j + 3] = 255;
+    }
+  }
+  return pixels;
+}

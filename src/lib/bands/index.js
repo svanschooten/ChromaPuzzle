@@ -3,6 +3,7 @@
 // Every plan answers one question — given a pixel, how much of each channel
 // does each band take — and the answer always adds back up to the pixel. That
 // is what makes the plates reconstruct the image.
+import { planCellBands } from './cells.js';
 import { planChannelBands } from './channels.js';
 import { planSpectrumBands } from './spectrum.js';
 
@@ -11,7 +12,7 @@ export const MAX_PLATES = 16;
 /** Above this, generation gets slow enough to be worth warning about. */
 export const SOFT_PLATE_LIMIT = 8;
 
-export const BAND_SPACES = ['channels', 'spectrum'];
+export const BAND_SPACES = ['channels', 'spectrum', 'cells'];
 export const BAND_MODES = ['linear', 'weighted', 'manual'];
 export const MAX_WEAVE = 8;
 
@@ -23,6 +24,7 @@ export const MAX_WEAVE = 8;
  * @param {'linear'|'weighted'|'manual'} [options.mode] how the cuts are placed
  * @param {number} [options.weave] slices per band; >1 interleaves them
  * @param {?object} [options.cuts] hand-placed cuts for manual mode
+ * @param {object} [options.cells] colour-cell axes: hue, chroma, value, hard
  * @returns {{space: string, bandCount: number, bands: {tint: number[], label: string}[],
  *            cuts: object, values: (r: number, g: number, b: number, out: Int32Array) => void}}
  */
@@ -33,6 +35,7 @@ export function planBands({
   mode = 'linear',
   weave = 1,
   cuts = null,
+  cells = undefined,
 }) {
   if (plateCount < MIN_PLATES || plateCount > MAX_PLATES) {
     throw new RangeError(`plateCount must be between ${MIN_PLATES} and ${MAX_PLATES}`);
@@ -43,11 +46,17 @@ export function planBands({
     mode,
     weave: Math.max(1, Math.min(MAX_WEAVE, Math.round(weave))),
     cuts,
+    cells,
   };
-  const plan = space === 'spectrum' ? planSpectrumBands(options) : planChannelBands(options);
+  const plan =
+    space === 'cells'
+      ? planCellBands(options)
+      : space === 'spectrum'
+        ? planSpectrumBands(options)
+        : planChannelBands(options);
   // Both spaces hand back every cut, and the histograms behind them, so a
   // manual edit can start from what the automatic modes produced.
-  plan.cuts = { channels: [[], [], []], hue: [], ...plan.cuts };
-  plan.histograms = { channels: [], hue: [], ...plan.histograms };
+  plan.cuts = { channels: [[], [], []], hue: [], chroma: [], value: [], ...plan.cuts };
+  plan.histograms = { channels: [], hue: [], chroma: [], value: [], ...plan.histograms };
   return plan;
 }

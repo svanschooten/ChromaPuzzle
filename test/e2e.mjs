@@ -231,6 +231,49 @@ async function main() {
   await setRange('#c-weave', 1);
   await page.click('#c-band-linear');
 
+  // Colour cells: hue × chroma × value classes, summed onto plates.
+  await page.click('#c-space-cells');
+  await setRange('#c-cell-hue', 6);
+  await setRange('#c-cell-chroma', 4);
+  await setRange('#c-cell-value', 5);
+  await regenerate();
+  check(
+    'soft colour cells reconstruct the source',
+    meanAbsError(await readCanvas(), sourceRgb) === 0,
+  );
+  const cellLabel = await page.locator('.panel.right .card .sub').first().textContent();
+  check('cell plates are labelled as cells', cellLabel.includes('Cell'), cellLabel.trim());
+
+  await page.check('#c-cell-hard');
+  await regenerate();
+  check(
+    'hard colour cells reconstruct the source',
+    meanAbsError(await readCanvas(), sourceRgb) === 0,
+  );
+
+  // Hard routing sends each pixel to one plate, so a single plate is mostly empty.
+  const soloCoverage = await page.evaluate(() => {
+    const img = document.querySelectorAll('.panel.right .card img')[0];
+    const canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    canvas.getContext('2d').drawImage(img, 0, 0);
+    const data = canvas.getContext('2d').getImageData(0, 0, canvas.width, canvas.height).data;
+    let lit = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] + data[i + 1] + data[i + 2] > 12) lit++;
+    }
+    return lit / (data.length / 4);
+  });
+  check(
+    'a hard cell plate holds only its slice of colour space',
+    soloCoverage < 0.7,
+    `${(soloCoverage * 100).toFixed(0)}% of the plate has content`,
+  );
+
+  await page.uncheck('#c-cell-hard');
+  await page.click('#c-space-channels');
+
   await page.click('#c-falsemode-warp');
   await setRange('#c-decoy', 0.9);
   await regenerate();
@@ -284,6 +327,7 @@ async function main() {
       meta.bandMode === 'linear' &&
       meta.bandSpace === 'channels' &&
       meta.weave === 1 &&
+      meta.cells === null &&
       meta.decoyIntensity === 0.9 &&
       meta.falseMode === 'warp' &&
       meta.occlusion?.mode === 'fracture',

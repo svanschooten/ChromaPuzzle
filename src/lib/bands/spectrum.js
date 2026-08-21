@@ -6,34 +6,8 @@
 // with the weights summing to 1. Grey has no hue at all, so the achromatic part
 // (min(r, g, b)) is sliced tonally across the bands instead.
 import { linearCuts, linearRing, tidyCuts, weightedCuts, weightedRing } from './cuts.js';
-
-const HUE_STEPS = 360;
-
-function hueOf(r, g, b, max, chroma) {
-  let hue;
-  if (max === r) hue = (g - b) / chroma;
-  else if (max === g) hue = (b - r) / chroma + 2;
-  else hue = (r - g) / chroma + 4;
-  hue *= 60;
-  return hue < 0 ? hue + 360 : hue;
-}
-
-/** Hue histogram weighted by chroma, plus a histogram of the achromatic part. */
-function analyse(pixels) {
-  const hues = new Int32Array(HUE_STEPS);
-  const greys = new Int32Array(256);
-  for (let i = 0; i < pixels.length; i += 4) {
-    const r = pixels[i];
-    const g = pixels[i + 1];
-    const b = pixels[i + 2];
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    greys[min]++;
-    const chroma = max - min;
-    if (chroma > 0) hues[Math.floor(hueOf(r, g, b, max, chroma)) % HUE_STEPS] += chroma;
-  }
-  return { hues, greys };
-}
+import { createRouter } from './router.js';
+import { analyseColour, hueOf, HUE_STEPS } from './colour.js';
 
 const wheelTint = (hue) => {
   const sector = hue / 60;
@@ -51,7 +25,7 @@ const wheelTint = (hue) => {
 
 export function planSpectrumBands({ pixels, plateCount, mode = 'linear', weave = 1, cuts = null }) {
   const arcCount = plateCount * weave;
-  const { hues, greys } = analyse(pixels);
+  const { hue: hues, grey: greys } = analyseColour(pixels);
 
   const ring =
     mode === 'manual'
@@ -61,29 +35,7 @@ export function planSpectrumBands({ pixels, plateCount, mode = 'linear', weave =
         : linearRing(arcCount, HUE_STEPS);
 
   // Chroma is shared between the two nearest arc centres.
-  const centres = ring.map((start, index) => {
-    const end = ring[(index + 1) % arcCount] + (index === arcCount - 1 ? HUE_STEPS : 0);
-    return (start + (end - start) / 2) % HUE_STEPS;
-  });
-
-  const bandA = new Uint8Array(HUE_STEPS);
-  const bandB = new Uint8Array(HUE_STEPS);
-  const weightA = new Float32Array(HUE_STEPS);
-  for (let hue = 0; hue < HUE_STEPS; hue++) {
-    let index = -1;
-    for (let arc = 0; arc < arcCount; arc++) {
-      if (centres[arc] <= hue) index = index === -1 || centres[arc] > centres[index] ? arc : index;
-    }
-    if (index === -1) index = centres.indexOf(Math.max(...centres)); // wrapped past the last centre
-    const next = (index + 1) % arcCount;
-    let span = centres[next] - centres[index];
-    if (span <= 0) span += HUE_STEPS;
-    let offset = hue - centres[index];
-    if (offset < 0) offset += HUE_STEPS;
-    bandA[hue] = index % plateCount;
-    bandB[hue] = next % plateCount;
-    weightA[hue] = 1 - Math.min(1, offset / span);
-  }
+  const arcs = createRouter({ cuts: ring, size: HUE_STEPS, ring: true });
 
   // Grey carries no hue, so it is sliced by brightness instead.
   const greyCuts =
@@ -104,7 +56,7 @@ export function planSpectrumBands({ pixels, plateCount, mode = 'linear', weave =
     const start = ring[band];
     const end = ring[(band + 1) % arcCount];
     return {
-      tint: wheelTint(centres[band]),
+      tint: wheelTint((start + ((end - start + HUE_STEPS) % HUE_STEPS) / 2) % HUE_STEPS),
       label: `${Math.round(start)}–${Math.round(end)}°${weave > 1 ? ' woven' : ''}`,
     };
   });
@@ -133,9 +85,10 @@ export function planSpectrumBands({ pixels, plateCount, mode = 'linear', weave =
       if (chroma === 0) return;
 
       const hue = Math.floor(hueOf(r, g, b, max, chroma)) % HUE_STEPS;
-      const first = bandA[hue];
-      const second = bandB[hue];
-      const share = weightA[hue];
+      // Arcs beyond the plate count wrap around, which is how weave interleaves.
+      const first = arcs.classA[hue] % plateCount;
+      const second = arcs.classB[hue] % plateCount;
+      const share = arcs.weightA[hue];
       const channels = [r - min, g - min, b - min];
       for (let channel = 0; channel < 3; channel++) {
         const value = channels[channel];
