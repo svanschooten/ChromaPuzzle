@@ -144,6 +144,7 @@ export async function exportPuzzleZip({
   cells,
   falseMode,
   decoyIntensity,
+  stack,
   occlusion,
   tints,
 }) {
@@ -174,6 +175,7 @@ export async function exportPuzzleZip({
     cells,
     falseMode,
     decoyIntensity,
+    stack,
     occlusion,
     tints,
     plateFiles,

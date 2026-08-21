@@ -8,8 +8,9 @@
 import { createFractureField } from './fracture.js';
 import { createBlendField } from './blend.js';
 import { createNoiseField } from './noise.js';
+import { createScreenField } from './screen.js';
 
-export const OCCLUSION_MODES = ['fracture', 'blend', 'noise'];
+export const OCCLUSION_MODES = ['fracture', 'blend', 'noise', 'screen'];
 
 /**
  * @returns {{planAt: (index: number) => number,
@@ -23,6 +24,8 @@ export function createOcclusion({ mode, ...options }) {
       return createBlendField(options);
     case 'noise':
       return createNoiseField(options);
+    case 'screen':
+      return createScreenField(options);
     default:
       throw new RangeError(`unknown occlusion mode: ${mode}`);
   }

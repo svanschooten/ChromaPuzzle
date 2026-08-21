@@ -5,7 +5,7 @@ import { createRandom } from '../../src/lib/random.js';
 
 const WIDTH = 24;
 const HEIGHT = 18;
-const MODES = ['fracture', 'blend', 'noise'];
+const MODES = ['fracture', 'blend', 'noise', 'screen'];
 
 const build = (mode, plateCount, bandCount, strength = 1, seed = 3) =>
   createOcclusion({
@@ -16,7 +16,7 @@ const build = (mode, plateCount, bandCount, strength = 1, seed = 3) =>
     width: WIDTH,
     height: HEIGHT,
     shardSize: 8,
-    scale: 12,
+    scale: mode === 'screen' ? 2 : 12,
     random: createRandom(seed),
   });
 

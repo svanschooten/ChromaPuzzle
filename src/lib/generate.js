@@ -5,6 +5,7 @@ import { splitPlates } from './split.js';
 import { generateFalsePlate } from './falsePlate.js';
 import { createOcclusion } from './occlusion/index.js';
 import { createRandom } from './random.js';
+import { cipherPlates } from './cipher.js';
 
 /**
  * @param {object} options.settings plateCount, falseCount, opacity, bandMode,
@@ -74,12 +75,17 @@ export function generatePuzzle({ pixels, width, height, settings, onProgress = (
     });
   }
 
+  // Cipher last: it works on finished plates, whatever produced them.
+  const cipher = settings.cipher ?? 0;
+  if (cipher > 0) cipherPlates({ plates, strength: cipher, random });
+
   // A plate with nothing on it cannot be told apart by eye or by blend, so the
   // solver would only be guessing about it. Worth reporting back.
   for (const plate of plates) plate.weak = isNearlyEmpty(plate.data);
 
   return {
     plates,
+    stack: cipher > 0 ? 'modular' : 'additive',
     cuts: plan.cuts,
     histograms: plan.histograms,
     shardCount: field?.shards?.count ?? 0,

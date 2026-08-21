@@ -44,6 +44,7 @@ const OCCLUSION_COPY = {
   fracture: { label: 'Fracture', hint: 'Bands swap between plates shard by shard' },
   blend: { label: 'Blend', hint: 'Soft noise islands decide who carries what' },
   noise: { label: 'Noise', hint: 'Per-pixel static; plates become colored snow' },
+  screen: { label: 'Screen', hint: 'An ordered dither, like a printing separation' },
 };
 const describe = (modes, copy) => modes.map((value) => ({ value, ...copy[value] }));
 const FALSE_MODE_CHOICES = describe(FALSE_MODES, FALSE_MODE_COPY);
@@ -342,6 +343,22 @@ function setChannelCuts(channel, cuts) {
           <div class="scale"><span>12</span><span>96</span></div>
         </div>
 
+        <div class="control" v-if="creator.occlusionMode === 'screen'">
+          <div class="row">
+            <label for="c-screen">Dot Size</label>
+            <span class="val">{{ creator.screenScale }} px</span>
+          </div>
+          <input
+            id="c-screen"
+            type="range"
+            min="1"
+            max="8"
+            step="1"
+            v-model.number="creator.screenScale"
+          />
+          <div class="scale"><span>1</span><span>8</span></div>
+        </div>
+
         <div class="control" v-if="creator.occlusionMode === 'blend'">
           <div class="row">
             <label for="c-scale">Island Size</label>
@@ -363,6 +380,30 @@ function setChannelCuts(channel, cuts) {
           source exactly.
         </div>
       </template>
+    </div>
+
+    <div class="section">
+      <h2>Stacking</h2>
+      <div class="control">
+        <div class="row">
+          <label for="c-cipher">Cipher</label>
+          <span class="val">{{ Math.round(creator.cipher * 100) }}%</span>
+        </div>
+        <input
+          id="c-cipher"
+          type="range"
+          min="0"
+          max="1"
+          step="0.05"
+          v-model.number="creator.cipher"
+        />
+        <div class="scale"><span>plates add up</span><span>plates are static</span></div>
+      </div>
+      <div class="note" v-if="creator.cipher > 0">
+        Plates carry noise that cancels out modulo 256, so the picture exists only in the complete
+        stack. They no longer combine with ordinary additive blending, and an incomplete stack shows
+        nothing at all — the puzzle becomes trial and error rather than something you can read.
+      </div>
     </div>
 
     <div class="section">

@@ -1,6 +1,12 @@
 <script setup>
 import DropZone from './DropZone.vue';
+import SegmentedChoice from './SegmentedChoice.vue';
 import { clearPlates, loadPlates, solver } from '../state.js';
+
+const STACK_CHOICES = [
+  { value: 'additive', label: 'Additive', hint: 'Plates add up, the usual stack' },
+  { value: 'modular', label: 'Cipher', hint: 'Plates wrap modulo 256; set by puzzle.json' },
+];
 </script>
 
 <template>
@@ -23,6 +29,14 @@ import { clearPlates, loadPlates, solver } from '../state.js';
         Loaded: {{ solver.plates.length }} plates<br />{{ solver.width }} × {{ solver.height }} px
       </div>
       <div class="error" v-if="solver.error">{{ solver.error }}</div>
+
+      <SegmentedChoice
+        v-if="solver.plates.length"
+        id="s-stack"
+        label="Stacking"
+        v-model="solver.stack"
+        :choices="STACK_CHOICES"
+      />
       <button class="linkbtn" v-if="solver.plates.length" @click="clearPlates">Clear All</button>
     </div>
 

@@ -39,8 +39,9 @@ npm run build
 2. Choose 2–16 real chroma plates and 0–16 decoys
 3. Pick the band space (channels, spectrum or cells), how the cuts are placed,
    whether to weave them, how decoys are built, and whether to occlude the plates
-4. Preview the blended result with per-plate toggles
-5. Export a ZIP of shuffled plate PNGs plus a `puzzle.json` metadata file
+4. Cipher the stack if the plates should give nothing away on their own
+5. Preview the blended result with per-plate toggles
+6. Export a ZIP of shuffled plate PNGs plus a `puzzle.json` metadata file
 
 Generation runs in a Web Worker, so the interface stays responsive while eight
 plates and eight decoys are being built. If a browser refuses to start the
@@ -169,11 +170,12 @@ the plates, so whatever one plate gives up another picks up, and the stack still
 reconstructs the source **exactly**. They differ only in where the weights come
 from.
 
-| Mode         | Weights come from                                         | Looks like        |
-| ------------ | --------------------------------------------------------- | ----------------- |
-| **Fracture** | Irregular shards (a jittered-grid Voronoi), one plan each | Stained glass     |
-| **Blend**    | Soft fractal-noise islands, one mask per plate            | Torn color washes |
-| **Noise**    | Per-pixel static, redrawn for every pixel                 | Colored snow      |
+| Mode         | Weights come from                                         | Looks like            |
+| ------------ | --------------------------------------------------------- | --------------------- |
+| **Fracture** | Irregular shards (a jittered-grid Voronoi), one plan each | Stained glass         |
+| **Blend**    | Soft fractal-noise islands, one mask per plate            | Torn color washes     |
+| **Noise**    | Per-pixel static, redrawn for every pixel                 | Colored snow          |
+| **Screen**   | An ordered dither on a fixed lattice                      | A printing separation |
 
 Fracture additionally splits tones: each shard picks a threshold, and the part
 of a band below it goes to a different plate than the part above it, so a
@@ -190,6 +192,33 @@ Occlusion hides the picture; it does not encrypt it. A black pixel is zero and
 has nothing to distribute, so silhouettes survive, and a plate's local average
 can never be independent of the image. Fracture at a small shard size hides the
 most; blend at a large island size leaves whole features legible.
+
+## Stacking
+
+Additive plates can never be brighter than the picture they came from, so every
+one of them carries its outline however the bands are shuffled — around **0.7
+correlation** with the source even under fully random weights. Occlusion
+decorrelates; it cannot remove that.
+
+The `Cipher` slider changes the arithmetic instead. Plates get noise that
+cancels _modulo 256_ rather than adding up, so at full strength every plate is
+uniform static and correlation with the source drops to **0.0**, while the
+complete stack still reveals the image exactly. Halfway leaves a ghost.
+
+What it costs:
+
+- Wrapped plates do not combine under ordinary additive blending, so they only
+  come back together in this app. `puzzle.json` records `stack.mode`, and the
+  solver switches to it automatically.
+- An incomplete stack shows nothing at all rather than a partial picture, so
+  the puzzle becomes trial and error rather than something to read. Keep the
+  plate count low, or the cipher partial.
+- Plate opacity and source transparency are ignored: alpha would leak the
+  picture's shape.
+
+Multiplying the plates instead — stacked gels, the physically faithful version —
+was measured and rejected: in density space every plate becomes a pale wash that
+tracks the image, correlating **0.9**, worse than additive.
 
 ## Performance
 
@@ -231,6 +260,7 @@ src/
       channels.js     tonal slices of RGB channels
       spectrum.js     hue arcs plus achromatic slices
       cuts.js         linear, histogram-weighted and hand-placed cuts
+    cipher.js         modular-wrapping stack and its reveal
     cost.js           generation time estimate
     split.js          bands + weight field → plates
     generate.js       the whole generation run, DOM-free
@@ -247,6 +277,7 @@ src/
       fracture.js     shard map and per-shard plans
       blend.js        fractal-noise island masks
       noise.js        per-pixel static masks
+      screen.js       ordered-dither lattice masks
       valueNoise.js   fractal value noise
   worker/
     generate.worker.js   runs generation off the UI thread
@@ -276,6 +307,7 @@ give nothing away:
   "falseMode": "warp",
   "decoyIntensity": 0.6,
   "occlusion": { "mode": "fracture", "strength": 0.6, "shardSize": 32, "scale": 40 },
+  "stack": { "mode": "modular", "cipher": 1 },
   "tints": [
     [255, 0, 0],
     [0, 255, 0],

@@ -49,11 +49,13 @@ export const creator = reactive({
   histograms: null,
   falseMode: 'drift',
   decoyIntensity: 0.6,
+  cipher: 0,
   occlusionEnabled: false,
   occlusionMode: 'fracture',
   occlusionStrength: 0.6,
   shardSize: 32,
   blendScale: 40,
+  screenScale: 2,
   showOriginal: false,
   engine: '',
 });
@@ -61,6 +63,7 @@ export const creator = reactive({
 export const solver = reactive({
   plates: [],
   meta: null,
+  stack: 'additive',
   width: 0,
   height: 0,
   error: '',
@@ -81,6 +84,11 @@ export const activePlates = computed(() =>
 );
 
 export const enabledPlates = computed(() => activePlates.value.filter((plate) => plate.enabled));
+
+/** How the enabled plates come back together: added, or wrapped modulo 256. */
+export const stackMode = computed(() =>
+  ui.mode === 'creator' ? (creator.cipher > 0 ? 'modular' : 'additive') : solver.stack,
+);
 
 /** Roughly how long the current settings will take to generate. */
 export const estimate = computed(() => {
@@ -108,7 +116,7 @@ const occlusionSettings = computed(() =>
         mode: creator.occlusionMode,
         strength: creator.occlusionStrength,
         shardSize: creator.shardSize,
-        scale: creator.blendScale,
+        scale: creator.occlusionMode === 'screen' ? creator.screenScale : creator.blendScale,
       }
     : null,
 );
@@ -166,6 +174,7 @@ export async function generatePlates() {
           cuts: creator.bandMode === 'manual' ? toRaw(creator.cuts) : null,
           falseMode: creator.falseMode,
           decoyIntensity: creator.decoyIntensity,
+          cipher: creator.cipher,
           occlusion: occlusionSettings.value,
           seed: (Math.random() * 2 ** 32) >>> 0,
         },
@@ -229,6 +238,7 @@ export async function exportPuzzle() {
       cells: creator.bandSpace === 'cells' ? { ...creator.cells } : null,
       falseMode: creator.falseMode,
       decoyIntensity: creator.decoyIntensity,
+      stack: { mode: creator.cipher > 0 ? 'modular' : 'additive', cipher: creator.cipher },
       occlusion: occlusionSettings.value,
       tints: creator.plates.filter((plate) => !plate.isFalse).map((plate) => plate.tint),
     });
@@ -278,6 +288,8 @@ export async function loadPlates(files) {
     solver.width = width;
     solver.height = height;
     solver.meta = meta;
+    // A ciphered stack wraps rather than adds; the puzzle file says which.
+    solver.stack = meta?.stack?.mode === 'modular' ? 'modular' : 'additive';
     if (errors.length && !solver.error) solver.error = errors.join(' · ');
     await checkSolution();
     setStatus(
@@ -295,6 +307,7 @@ export async function loadPlates(files) {
 export function clearPlates() {
   solver.plates = [];
   solver.meta = null;
+  solver.stack = 'additive';
   solver.error = '';
   solver.solved = false;
   solver.width = solver.height = 0;
@@ -340,7 +353,9 @@ export async function exportSolution() {
   try {
     const width = ui.mode === 'creator' ? creator.source.width : solver.width;
     const height = ui.mode === 'creator' ? creator.source.height : solver.height;
-    const canvas = renderPlates(createCanvas(width, height), plates, width, height);
+    const canvas = renderPlates(createCanvas(width, height), plates, width, height, {
+      modular: stackMode.value === 'modular',
+    });
     saveAs(await toPngBlob(canvas), 'solution.png');
     setStatus(`Exported solution.png from ${plates.length} plates`);
   } catch (error) {

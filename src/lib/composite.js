@@ -1,4 +1,5 @@
-// Additive compositing of plates (design doc 2.2 "Reconstruction").
+// Compositing plates back into a picture.
+import { revealModular } from './cipher.js';
 
 export function createCanvas(width, height) {
   const canvas = document.createElement('canvas');
@@ -14,14 +15,21 @@ function plateToCanvas(plate, width, height) {
 }
 
 /**
- * Draws the enabled plates onto `canvas` with `lighter` (additive) blending.
- * Additive blending is commutative, so stack order does not change the result.
- * The black fill is the additive identity and keeps the output fully opaque.
+ * Draws the enabled plates onto `canvas`.
+ *
+ * Additive stacking uses `lighter`, whose black fill is the identity and keeps
+ * the output opaque. Ciphered stacking wraps instead of clamping, which no
+ * canvas blend mode does, so it is composited here in JavaScript. Both are
+ * commutative: stack order never changes the result.
  */
-export function renderPlates(canvas, plates, width, height) {
+export function renderPlates(canvas, plates, width, height, { modular = false } = {}) {
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext('2d');
+  if (modular) {
+    ctx.putImageData(new ImageData(revealModular(plates, width, height), width, height), 0, 0);
+    return canvas;
+  }
   ctx.globalCompositeOperation = 'source-over';
   ctx.fillStyle = 'black';
   ctx.fillRect(0, 0, width, height);

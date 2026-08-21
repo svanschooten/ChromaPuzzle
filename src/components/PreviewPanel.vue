@@ -1,6 +1,14 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue';
-import { activePlates, checkSolution, creator, enabledPlates, solver, ui } from '../state.js';
+import {
+  activePlates,
+  checkSolution,
+  creator,
+  enabledPlates,
+  solver,
+  stackMode,
+  ui,
+} from '../state.js';
 import { renderPlates } from '../lib/composite.js';
 import { rgbCss } from '../lib/color.js';
 
@@ -15,17 +23,19 @@ const dimensions = computed(() =>
 function render() {
   const [width, height] = dimensions.value;
   if (!canvas.value || !width || !height) return;
+  const modular = stackMode.value === 'modular';
   if (ui.mode === 'creator' && creator.showOriginal && creator.source) {
     renderPlates(canvas.value, [{ data: creator.source.data }], width, height);
     return;
   }
-  renderPlates(canvas.value, enabledPlates.value, width, height);
+  renderPlates(canvas.value, enabledPlates.value, width, height, { modular });
 }
 
 // Re-render whenever the enabled set, the plates themselves, or the mode change.
 const signature = computed(() =>
   [
     ui.mode,
+    stackMode.value,
     creator.showOriginal,
     dimensions.value.join('x'),
     activePlates.value.map((p) => p.id + (p.enabled ? '1' : '0')).join(','),

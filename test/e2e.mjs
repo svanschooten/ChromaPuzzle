@@ -289,7 +289,7 @@ async function main() {
   await setRange('#c-real', 4);
   await page.click('#c-band-linear');
   await page.check('#c-occlusion');
-  for (const mode of ['fracture', 'blend', 'noise']) {
+  for (const mode of ['fracture', 'blend', 'noise', 'screen']) {
     await page.click(`#c-occmode-${mode}`);
     await setRange('#c-strength', 0.9);
     await regenerate();
@@ -308,6 +308,92 @@ async function main() {
 
   await page.click('#c-occmode-fracture');
   await setRange('#c-real', 3);
+  await regenerate();
+
+  // Cipher stacking: plates wrap modulo 256 instead of adding. No decoys here,
+  // so the solver's "everything enabled" state is the right answer.
+  await page.uncheck('#c-occlusion');
+  await setRange('#c-false', 0);
+  await setRange('#c-cipher', 1);
+  await regenerate();
+  check(
+    'a ciphered stack still reveals the source',
+    meanAbsError(await readCanvas(), sourceRgb) === 0,
+  );
+
+  const cipherCorrelation = await page.evaluate(
+    async (bytes) => {
+      const image = await createImageBitmap(
+        new Blob([new Uint8Array(bytes)], { type: 'image/png' }),
+      );
+      const reference = document.createElement('canvas');
+      reference.width = image.width;
+      reference.height = image.height;
+      reference.getContext('2d').drawImage(image, 0, 0);
+      const source = reference.getContext('2d').getImageData(0, 0, image.width, image.height).data;
+
+      const plate = document.querySelectorAll('.panel.right .card img')[0];
+      const canvas = document.createElement('canvas');
+      canvas.width = image.width;
+      canvas.height = image.height;
+      canvas.getContext('2d').drawImage(plate, 0, 0, image.width, image.height);
+      const data = canvas.getContext('2d').getImageData(0, 0, image.width, image.height).data;
+
+      let sa = 0,
+        sb = 0,
+        saa = 0,
+        sbb = 0,
+        sab = 0;
+      const count = source.length / 4;
+      for (let i = 0; i < source.length; i += 4) {
+        const a = (source[i] + source[i + 1] + source[i + 2]) / 3;
+        const b = (data[i] + data[i + 1] + data[i + 2]) / 3;
+        sa += a;
+        sb += b;
+        saa += a * a;
+        sbb += b * b;
+        sab += a * b;
+      }
+      const cov = sab / count - (sa / count) * (sb / count);
+      const va = saa / count - (sa / count) ** 2;
+      const vb = sbb / count - (sb / count) ** 2;
+      return vb <= 1e-9 ? 0 : cov / Math.sqrt(va * vb);
+    },
+    [...(await readFile(sourcePath))],
+  );
+  check(
+    'a ciphered plate keeps nothing of the picture',
+    Math.abs(cipherCorrelation) < 0.2,
+    `correlation ${cipherCorrelation.toFixed(3)}`,
+  );
+
+  // The solver has to pick the wrapped stacking up from puzzle.json on its own.
+  const cipherDownload = await Promise.all([
+    page.waitForEvent('download'),
+    page.click('button.primary:has-text("EXPORT PUZZLE")'),
+  ]).then(([event]) => event);
+  const cipherZip = join(work, 'cipher.zip');
+  await cipherDownload.saveAs(cipherZip);
+  const cipherMeta = JSON.parse(
+    await (await JSZip.loadAsync(await readFile(cipherZip))).file('puzzle.json').async('string'),
+  );
+  check('a ciphered puzzle records its stacking', cipherMeta.stack?.mode === 'modular');
+
+  await page.click('.modes button:has-text("Solver")');
+  await page.setInputFiles('input[aria-label^="Load plates"]', cipherZip);
+  await page.waitForSelector('.panel.right .card');
+  await page.waitForTimeout(200);
+  check(
+    'the solver switches itself to wrapped stacking',
+    (await page.locator('#s-stack-modular').getAttribute('aria-checked')) === 'true',
+  );
+  check('the solver reveals a ciphered puzzle', meanAbsError(await readCanvas(), sourceRgb) === 0);
+  await page.click('button.linkbtn:has-text("Clear All")');
+  await page.click('.modes button:has-text("Creator")');
+
+  await setRange('#c-false', 2);
+  await setRange('#c-cipher', 0);
+  await page.check('#c-occlusion');
   await regenerate();
 
   const download = await Promise.all([
