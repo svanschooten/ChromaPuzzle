@@ -99,7 +99,14 @@ async function main() {
     });
   const statusText = () => page.locator('.statusbar').textContent();
 
+  check(
+    'the app opens in the solver',
+    (await page.locator('.modes button:has-text("Solver")').getAttribute('aria-pressed')) ===
+      'true',
+  );
+
   /* ---------------------------------------------------------------- creator */
+  await page.click('.modes button:has-text("Creator")');
   await page.setInputFiles('input[aria-label^="Upload source image"]', sourcePath);
   await page.waitForSelector('img[alt="Source image preview"]');
   check(
@@ -166,6 +173,41 @@ async function main() {
       }
       return Math.max(...sums) / (sums[0] + sums[1] + sums[2] || 1);
     }, index);
+
+  // Solo in the creator, and back out of it again.
+  await page.locator('.panel.right .card').first().locator('button:has-text("solo")').click();
+  check(
+    'the creator can solo a plate',
+    (await page.locator('.panel.right .card input[type=checkbox]:checked').count()) === 1,
+  );
+  await page.locator('.panel.right .card').first().locator('button:has-text("solo")').click();
+  check(
+    'leaving solo restores the real plates only',
+    (await page.locator('.panel.right .card input[type=checkbox]:checked').count()) === 3,
+  );
+
+  // Presets: settings out to a file and back in again.
+  const presetDownload = await Promise.all([
+    page.waitForEvent('download'),
+    page.click('button.ghost:has-text("Save settings")'),
+  ]).then(([event]) => event);
+  const presetPath = join(work, 'preset.json');
+  await presetDownload.saveAs(presetPath);
+  const preset = JSON.parse(await readFile(presetPath, 'utf8'));
+  check(
+    'a preset holds the settings and not the picture',
+    preset.chromaPuzzlePreset === 1 && preset.plateCount === 3 && !('source' in preset),
+  );
+
+  await setRange('#c-real', 7);
+  await page.click('#c-space-spectrum');
+  await page.setInputFiles('input[aria-label="Preset file"]', presetPath);
+  await page.waitForTimeout(150);
+  check(
+    'loading a preset puts the settings back',
+    (await page.locator('#c-real').inputValue()) === '3' &&
+      (await page.locator('#c-space-channels').getAttribute('aria-checked')) === 'true',
+  );
 
   const plain = await channelConcentration(0);
   check(

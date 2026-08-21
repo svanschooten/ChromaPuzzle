@@ -81,7 +81,7 @@ main {
   grid-template-columns: 320px minmax(0, 1fr) 300px;
   gap: 14px;
   padding: 14px;
-  align-items: start;
+  min-height: 0;
 }
 .panel {
   background: var(--panel);
@@ -606,4 +606,60 @@ input[type='checkbox'] {
 }
 .estimate.slow {
   color: var(--warn);
+}
+
+/* ---------- brand ---------- */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.logo {
+  width: 30px;
+  height: 30px;
+  flex: none;
+}
+/* Additive overlap, the same rule the plates themselves follow. */
+.logo-plates circle {
+  mix-blend-mode: screen;
+}
+
+.buttonrow {
+  display: flex;
+  gap: 8px;
+}
+.buttonrow button {
+  flex: 1;
+}
+
+/* Keeps Generate reachable however long the settings run. Bleeds into the
+   panel's padding so nothing shows underneath it. */
+.sticky-action {
+  position: sticky;
+  bottom: -14px;
+  margin: 0 -14px -14px;
+  padding: 10px 14px 14px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+
+/* ---------- full-height columns ---------- */
+@media (min-width: 768px) {
+  /* Each column scrolls on its own, so the header, the status bar and the
+     Generate button stay put however long the settings get. */
+  #app {
+    height: 100vh;
+    overflow: hidden;
+  }
+  .panel {
+    max-height: 100%;
+    overflow-y: auto;
+    scrollbar-width: thin;
+  }
+  .panel.center .canvas-wrap {
+    flex: 1;
+  }
+  .cards {
+    max-height: none;
+  }
 }

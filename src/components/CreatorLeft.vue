@@ -1,4 +1,5 @@
 <script setup>
+import { ref } from 'vue';
 import BandCuts from './BandCuts.vue';
 import DropZone from './DropZone.vue';
 import SegmentedChoice from './SegmentedChoice.vue';
@@ -10,14 +11,24 @@ import {
   estimate,
   FALSE_MODES,
   generatePlates,
+  loadPreset,
   loadSource,
   MAX_PLATES,
   MAX_WEAVE,
   MIN_PLATES,
   OCCLUSION_MODES,
+  savePreset,
   SOFT_PLATE_LIMIT,
   ui,
 } from '../state.js';
+
+const presetInput = ref(null);
+
+function onPresetPicked(event) {
+  const [file] = event.target.files;
+  if (file) loadPreset(file);
+  event.target.value = '';
+}
 
 const BAND_SPACE_COPY = {
   channels: { label: 'Channels', hint: 'Tonal slices of red, green and blue' },
@@ -407,6 +418,23 @@ function setChannelCuts(channel, cuts) {
     </div>
 
     <div class="section">
+      <h2>Preset</h2>
+      <div class="buttonrow">
+        <button class="ghost" @click="savePreset">Save settings</button>
+        <button class="ghost" @click="presetInput.click()">Load settings</button>
+      </div>
+      <input
+        ref="presetInput"
+        type="file"
+        class="visually-hidden"
+        accept="application/json,.json"
+        aria-label="Preset file"
+        @change="onPresetPicked"
+      />
+      <div class="note">Every setting except the image, as a file you can share.</div>
+    </div>
+
+    <div class="section sticky-action">
       <p class="estimate" v-if="estimate" :class="{ slow: estimate.slow }">
         Estimated generation: {{ estimate.text }}.
         <template v-if="creator.plateCount > SOFT_PLATE_LIMIT">

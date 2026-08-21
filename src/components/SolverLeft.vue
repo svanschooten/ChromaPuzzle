@@ -62,7 +62,7 @@ const STACK_CHOICES = [
       <h2>How to Solve</h2>
       <div class="note">
         <ul>
-          <li>Plates blend additively, so stack order never changes the picture.</li>
+          <li>Plates blend, so the stack order never changes the picture.</li>
           <li>Solo a plate to see what colour band it carries.</li>
           <li>
             Switch plates off until the blend stops looking corrupted — the ones left are the real

@@ -109,7 +109,12 @@ function onKey(index, event) {
       </div>
       <div class="note" v-else>Load plates to build a stack.</div>
 
-      <button class="primary" :disabled="!enabledPlates.length || ui.busy" @click="exportSolution">
+      <button
+        class="primary"
+        v-if="solver.plates.length"
+        :disabled="!enabledPlates.length || ui.busy"
+        @click="exportSolution"
+      >
         <span v-if="ui.busy" class="spinner" aria-hidden="true"></span>
         <span>EXPORT SOLUTION<span class="sub">Download PNG</span></span>
       </button>

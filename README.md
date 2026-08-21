@@ -33,6 +33,9 @@ npm run build
 
 ## Modes
 
+The app opens in the **Solver**, since most visits start with a puzzle someone
+was handed. Switch to the **Creator** in the header to make one.
+
 ### Creator
 
 1. Upload an image (PNG/JPG/WebP)
@@ -40,8 +43,14 @@ npm run build
 3. Pick the band space (channels, spectrum or cells), how the cuts are placed,
    whether to weave them, how decoys are built, and whether to occlude the plates
 4. Cipher the stack if the plates should give nothing away on their own
-5. Preview the blended result with per-plate toggles
+5. Preview the blended result with per-plate toggles, or **solo** a plate to see
+   it on its own
 6. Export a ZIP of shuffled plate PNGs plus a `puzzle.json` metadata file
+
+**Save settings** writes every setting except the image to a `chroma-preset.json`
+you can share or keep; **Load settings** reads one back. Values out of range are
+pulled back in and anything unrecognised is ignored, so a hand-edited preset
+cannot put the creator into a state it does not understand.
 
 Generation runs in a Web Worker, so the interface stays responsive while eight
 plates and eight decoys are being built. If a browser refuses to start the
@@ -261,6 +270,7 @@ src/
       spectrum.js     hue arcs plus achromatic slices
       cuts.js         linear, histogram-weighted and hand-placed cuts
     cipher.js         modular-wrapping stack and its reveal
+    preset.js         creator settings in, out and validated
     cost.js           generation time estimate
     split.js          bands + weight field → plates
     generate.js       the whole generation run, DOM-free
@@ -319,6 +329,34 @@ give nothing away:
 }
 ```
 
+## Preset Format
+
+`chroma-preset.json` carries the creator's settings and nothing else — no image,
+no plates:
+
+```json
+{
+  "chromaPuzzlePreset": 1,
+  "plateCount": 6,
+  "falseCount": 2,
+  "opacity": 1,
+  "bandSpace": "cells",
+  "bandMode": "weighted",
+  "weave": 1,
+  "cells": { "hue": 6, "chroma": 4, "value": 5, "hard": true },
+  "cuts": null,
+  "falseMode": "warp",
+  "decoyIntensity": 0.6,
+  "cipher": 0,
+  "occlusionEnabled": true,
+  "occlusionMode": "fracture",
+  "occlusionStrength": 0.6,
+  "shardSize": 32,
+  "blendScale": 40,
+  "screenScale": 2
+}
+```
+
 ## Testing
 
 ```bash
@@ -336,10 +374,10 @@ error at opacity 1, and that decoys carry a real plate's alpha but never
 duplicate one. Generation is seeded, so all of it is reproducible.
 
 **End to end** (`npm run test:e2e`) drives the built page in Chromium: it
-generates puzzles across plate counts, band modes, decoy modes and every
-occlusion mode, checks each one still reconstructs exactly, round-trips a ZIP
-through the solver, and verifies the solution hash, solo, keyboard reordering
-and PNG export. Set `CHROME_PATH` to use a system browser instead of
+generates puzzles across plate counts, band spaces, decoy modes and every
+occlusion mode, checks each one still reconstructs exactly, round-trips both a
+plain and a ciphered ZIP through the solver, and verifies the solution hash,
+presets, solo, keyboard reordering and PNG export. Set `CHROME_PATH` to use a system browser instead of
 Playwright's download.
 
 ## Continuous Integration

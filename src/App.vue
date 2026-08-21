@@ -28,10 +28,21 @@ const summary = computed(() => {
 
 <template>
   <header>
-    <h1>🧩 Chroma Puzzle</h1>
+    <div class="brand">
+      <!-- Three plates overlapping additively: the whole idea, as a mark. -->
+      <svg class="logo" viewBox="0 0 32 32" role="img" aria-label="Chroma Puzzle">
+        <rect width="32" height="32" rx="8" fill="#0f1830" />
+        <g class="logo-plates">
+          <circle cx="13" cy="13" r="7.5" fill="#e94560" />
+          <circle cx="19.5" cy="13" r="7.5" fill="#3ddc97" />
+          <circle cx="16" cy="19.5" r="7.5" fill="#4a9eff" />
+        </g>
+      </svg>
+      <h1>Chroma Puzzle</h1>
+    </div>
     <nav class="modes" aria-label="Application mode">
       <button
-        v-for="m in ['creator', 'solver']"
+        v-for="m in ['solver', 'creator']"
         :key="m"
         :class="{ active: ui.mode === m }"
         :aria-pressed="String(ui.mode === m)"

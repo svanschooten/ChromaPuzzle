@@ -14,6 +14,7 @@ import { describeDuration, estimateGenerationMs } from './lib/cost.js';
 import { averageTint, makeThumb, renderPlates, toPngBlob, createCanvas } from './lib/composite.js';
 import { exportPuzzleZip, loadSourceImage, readPuzzleFiles, saveAs } from './lib/puzzleIO.js';
 import { solutionHash } from './lib/hash.js';
+import { buildPreset, readPreset } from './lib/preset.js';
 import { generate as runGeneration } from './worker/generateClient.js';
 
 export {
@@ -28,7 +29,8 @@ export {
 };
 
 export const ui = reactive({
-  mode: 'creator',
+  // The solver is where most visits start: someone has been handed a puzzle.
+  mode: 'solver',
   tab: 'preview',
   busy: false,
   status: 'Ready',
@@ -250,6 +252,29 @@ export async function exportPuzzle() {
   }
 }
 
+/** Everything that shapes a puzzle except the picture, as a shareable file. */
+export function savePreset() {
+  const preset = buildPreset(creator);
+  saveAs(
+    new Blob([JSON.stringify(preset, null, 2)], { type: 'application/json' }),
+    'chroma-preset.json',
+  );
+  setStatus('Preset saved');
+}
+
+export async function loadPreset(file) {
+  try {
+    const { values, ignored } = readPreset(JSON.parse(await file.text()));
+    Object.assign(creator, values);
+    setStatus(
+      `Preset loaded${ignored.length ? ` · ignored ${ignored.join(', ')}` : ''}`,
+      ignored.length ? 'busy' : '',
+    );
+  } catch (error) {
+    setStatus('Could not read that preset: ' + error.message, 'error');
+  }
+}
+
 /* ----------------------------------------------------------------- solver */
 
 export async function loadPlates(files) {
@@ -329,7 +354,11 @@ export function setAllEnabled(value) {
 export function soloPlate(plate) {
   const alreadySolo =
     activePlates.value.filter((entry) => entry.enabled).length === 1 && plate.enabled;
-  for (const entry of activePlates.value) entry.enabled = alreadySolo ? true : entry === plate;
+  for (const entry of activePlates.value) {
+    // Coming back out of solo restores the natural state: in the creator that
+    // is the real plates only, in the solver it is everything.
+    entry.enabled = alreadySolo ? !entry.isFalse : entry === plate;
+  }
   checkSolution();
 }
 

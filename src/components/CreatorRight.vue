@@ -1,5 +1,5 @@
 <script setup>
-import { creator, exportPuzzle, ui } from '../state.js';
+import { creator, enabledPlates, exportPuzzle, setAllEnabled, soloPlate, ui } from '../state.js';
 import { rgbCss } from '../lib/color.js';
 </script>
 
@@ -7,6 +7,13 @@ import { rgbCss } from '../lib/color.js';
   <section class="panel right">
     <div class="section">
       <h2>Generated Plates</h2>
+      <div class="previewbar" v-if="creator.plates.length">
+        <button class="ghost" @click="setAllEnabled(true)">All on</button>
+        <button class="ghost" @click="setAllEnabled(false)">All off</button>
+        <span class="stat" style="text-align: right">
+          {{ enabledPlates.length }}/{{ creator.plates.length }}
+        </span>
+      </div>
       <div class="cards" v-if="creator.plates.length">
         <div
           class="card"
@@ -28,6 +35,13 @@ import { rgbCss } from '../lib/color.js';
             </span>
             <span class="sub">{{ plate.width }}×{{ plate.height }} PNG</span>
           </div>
+          <button
+            class="linkbtn"
+            :aria-label="'Show only ' + plate.label"
+            @click="soloPlate(plate)"
+          >
+            solo
+          </button>
         </div>
       </div>
       <div class="note" v-else>Generate plates to see them here.</div>

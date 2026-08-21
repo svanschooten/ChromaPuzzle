@@ -117,7 +117,7 @@ onMounted(render);
       </template>
       <button
         class="ghost"
-        v-else
+        v-else-if="solver.plates.length"
         disabled
         title="puzzle.json carries no reference image, so there is no target to show"
       >
