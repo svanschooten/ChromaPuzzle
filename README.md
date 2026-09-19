@@ -80,7 +80,7 @@ is for your own organization).
 ### Bands
 
 A **band** is a share of the pixel. The bands always add back up to the source,
-which is what makes the plates reconstruct it. Two spaces decide what a band
+which is what makes the plates reconstruct it. Three spaces decide what a band
 owns:
 
 | Space        | A band owns                                                        |
@@ -173,7 +173,7 @@ three plates are recognizably the same face, which makes for an easy puzzle: you
 can tell the real plates from the decoys just by looking at them. Occlusion
 hides the picture inside each individual plate.
 
-All three modes are the same mechanism — a weight field that says, per pixel,
+All four modes are the same mechanism — a weight field that says, per pixel,
 how much of each band each plate takes. A band's weights always sum to 1 across
 the plates, so whatever one plate gives up another picks up, and the stack still
 reconstructs the source **exactly**. They differ only in where the weights come
@@ -246,9 +246,9 @@ Measured at 1200×900, split only:
 
 A cells split costs roughly twice a channels split, and grows the same way with
 plate count; hard cells are cheaper than soft. Decoys stay near-flat (200ms →
-506ms across the same range): without occlusion a
-band goes straight to its plate, and a decoy — one plate, never part of the sum —
-skips the cumulative pass over the others.
+506ms across the same range): without occlusion a band goes straight to its
+plate, and a decoy — one plate, never part of the sum — skips the cumulative
+pass over the others.
 
 ## Project Structure
 
@@ -298,8 +298,8 @@ test/e2e.mjs          browser end-to-end test
 
 ## Puzzle Format
 
-`puzzle.zip` holds `puzzle.json` and the plate PNGs, shuffled so that filenames
-give nothing away:
+A puzzle ZIP (`chroma-puzzle.zip`) holds `puzzle.json` and the plate PNGs,
+shuffled so that filenames give nothing away:
 
 ```json
 {
