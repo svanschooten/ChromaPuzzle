@@ -1,0 +1,25 @@
+{
+  "chromaPuzzlePreset": 1,
+  "plateCount": 4,
+  "falseCount": 2,
+  "opacity": 1,
+  "weave": 1,
+  "decoyIntensity": 0.5,
+  "cipher": 0,
+  "occlusionStrength": 0.6,
+  "shardSize": 32,
+  "blendScale": 40,
+  "screenScale": 2,
+  "bandSpace": "channels",
+  "bandMode": "linear",
+  "falseMode": "drift",
+  "occlusionMode": "fracture",
+  "occlusionEnabled": false,
+  "cells": {
+    "hue": 6,
+    "chroma": 4,
+    "value": 5,
+    "hard": true
+  },
+  "cuts": null
+}

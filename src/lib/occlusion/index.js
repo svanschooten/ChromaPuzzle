@@ -4,7 +4,8 @@
 // much of each band each plate takes. The weights for a band always sum to 1
 // across the plates, so whatever one plate gives up another picks up and the
 // stack still reconstructs the image exactly. The modes differ only in where
-// the weights come from — shards, smooth noise islands, or per-pixel static.
+// the weights come from — shards, smooth noise islands, per-pixel static, or
+// a dither lattice.
 import { createFractureField } from './fracture.js';
 import { createBlendField } from './blend.js';
 import { createNoiseField } from './noise.js';
