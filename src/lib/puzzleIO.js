@@ -2,10 +2,8 @@
 import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import { createCanvas, imageDataToPngBlob } from './composite.js';
-import { solutionHash } from './hash.js';
-
-/** Large sources make plate generation crawl, so cap the working resolution. */
-const MAX_DIM = 2048;
+import { layoutPuzzle } from './puzzleFormat.js';
+import { MAX_SOURCE_SIZE } from './settings.js';
 
 async function decode(blob) {
   if (globalThis.createImageBitmap) {
@@ -40,7 +38,8 @@ export async function loadSourceImage(file) {
   const bitmap = await decode(file);
   const ow = bitmap.width,
     oh = bitmap.height;
-  const scale = Math.min(1, MAX_DIM / Math.max(ow, oh));
+  // Large sources make plate generation crawl, so cap the working resolution.
+  const scale = Math.min(1, MAX_SOURCE_SIZE / Math.max(ow, oh));
   const width = Math.max(1, Math.round(ow * scale));
   const height = Math.max(1, Math.round(oh * scale));
   const imageData = toImageData(bitmap, width, height);
@@ -118,70 +117,17 @@ export async function readPuzzleFiles(files) {
   return { plates, meta, errors };
 }
 
-const shuffled = (items) => {
-  const out = [...items];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
-};
-
 /**
  * Packs plates into a ZIP with real and false plates shuffled together, so a
  * filename never gives the answer away.
+ * @param {object} options.settings the creator settings the plates were made with
  */
-export async function exportPuzzleZip({
-  plates,
-  width,
-  height,
-  numRealPlates,
-  numFalsePlates,
-  plateOpacity,
-  bandSpace,
-  bandMode,
-  weave,
-  cells,
-  falseMode,
-  decoyIntensity,
-  stack,
-  occlusion,
-  tints,
-}) {
+export async function exportPuzzleZip({ plates, width, height, settings }) {
   const zip = new JSZip();
-  const order = shuffled(plates);
-  const pad = String(order.length).length;
-  const plateFiles = [];
-  const realFiles = [];
-
-  for (let i = 0; i < order.length; i++) {
-    const filename = `plate_${String(i + 1).padStart(Math.max(2, pad), '0')}.png`;
-    plateFiles.push(filename);
-    if (!order[i].isFalse) realFiles.push(filename);
-    zip.file(filename, await imageDataToPngBlob(order[i].data, width, height));
+  const { entries, meta } = await layoutPuzzle({ plates, width, height, settings });
+  for (const { filename, plate } of entries) {
+    zip.file(filename, await imageDataToPngBlob(plate.data, width, height));
   }
-
-  const meta = {
-    version: '1.2',
-    width,
-    height,
-    numRealPlates,
-    numFalsePlates,
-    totalPlates: order.length,
-    plateOpacity,
-    bandSpace,
-    bandMode,
-    weave,
-    cells,
-    falseMode,
-    decoyIntensity,
-    stack,
-    occlusion,
-    tints,
-    plateFiles,
-    solutionHash: await solutionHash(realFiles),
-    created: new Date().toISOString(),
-  };
   zip.file('puzzle.json', JSON.stringify(meta, null, 2));
 
   const blob = await zip.generateAsync({ type: 'blob' });

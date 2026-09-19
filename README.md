@@ -270,6 +270,7 @@ src/
       spectrum.js     hue arcs plus achromatic slices
       cuts.js         linear, histogram-weighted and hand-placed cuts
     cipher.js         modular-wrapping stack and its reveal
+    settings.js       creator defaults, and what generation takes from them
     preset.js         creator settings in, out and validated
     cost.js           generation time estimate
     split.js          bands + weight field → plates
@@ -279,6 +280,7 @@ src/
     color.js          color matrices and tint drift
     random.js         seeded and position-addressed randomness
     composite.js      additive compositing, thumbnails, PNG encoding
+    puzzleFormat.js   shuffled plate names and puzzle.json
     puzzleIO.js       image/ZIP loading, puzzle export
     hash.js           SHA-256 (Web Crypto, with a JS fallback for file://)
     occlusion/

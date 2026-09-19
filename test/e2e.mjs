@@ -269,6 +269,11 @@ async function main() {
     'hand-placed cuts reconstruct the source',
     meanAbsError(await readCanvas(), sourceRgb) === 0,
   );
+  check(
+    'hand-placed cuts still generate in a worker',
+    !(await statusText()).includes('main thread'),
+    await statusText(),
+  );
 
   await setRange('#c-weave', 1);
   await page.click('#c-band-linear');
@@ -437,6 +442,8 @@ async function main() {
   await setRange('#c-cipher', 0);
   await page.check('#c-occlusion');
   await regenerate();
+  // Moved after generating: the export has to describe the plates, not the controls.
+  await setRange('#c-decoy', 0.3);
 
   const download = await Promise.all([
     page.waitForEvent('download'),

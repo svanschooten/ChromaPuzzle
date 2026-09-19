@@ -15,6 +15,7 @@ import { averageTint, makeThumb, renderPlates, toPngBlob, createCanvas } from '.
 import { exportPuzzleZip, loadSourceImage, readPuzzleFiles, saveAs } from './lib/puzzleIO.js';
 import { solutionHash } from './lib/hash.js';
 import { buildPreset, readPreset } from './lib/preset.js';
+import { defaultSettings, generationSettings, pickSettings } from './lib/settings.js';
 import { generate as runGeneration } from './worker/generateClient.js';
 
 export {
@@ -40,27 +41,15 @@ export const ui = reactive({
 export const creator = reactive({
   source: null,
   plates: [],
-  plateCount: 3,
-  falseCount: 2,
-  opacity: 1,
-  bandSpace: 'channels',
-  bandMode: 'linear',
-  weave: 1,
-  cells: { hue: 6, chroma: 4, value: 5, hard: false },
-  cuts: null,
+  ...defaultSettings(),
   histograms: null,
-  falseMode: 'drift',
-  decoyIntensity: 0.6,
-  cipher: 0,
-  occlusionEnabled: false,
-  occlusionMode: 'fracture',
-  occlusionStrength: 0.6,
-  shardSize: 32,
-  blendScale: 40,
-  screenScale: 2,
   showOriginal: false,
   engine: '',
 });
+
+// What the current plates were made with. The controls stay live after
+// generating, so an export has to describe these rather than the controls.
+let generatedWith = null;
 
 export const solver = reactive({
   plates: [],
@@ -111,18 +100,6 @@ export const estimate = computed(() => {
   };
 });
 
-/** The occlusion settings to generate with, or null when it is switched off. */
-const occlusionSettings = computed(() =>
-  creator.occlusionEnabled
-    ? {
-        mode: creator.occlusionMode,
-        strength: creator.occlusionStrength,
-        shardSize: creator.shardSize,
-        scale: creator.occlusionMode === 'screen' ? creator.screenScale : creator.blendScale,
-      }
-    : null,
-);
-
 /* ---------------------------------------------------------------- creator */
 
 export async function loadSource(file) {
@@ -160,30 +137,18 @@ export async function generatePlates() {
   await frame();
 
   try {
+    const settings = pickSettings(toRaw(creator));
     const { result, engine } = await runGeneration(
       {
         pixels: data.slice(),
         width,
         height,
-        settings: {
-          plateCount: creator.plateCount,
-          falseCount: creator.falseCount,
-          opacity: creator.opacity,
-          bandSpace: creator.bandSpace,
-          bandMode: creator.bandMode,
-          weave: creator.weave,
-          cells: toRaw(creator.cells),
-          cuts: creator.bandMode === 'manual' ? toRaw(creator.cuts) : null,
-          falseMode: creator.falseMode,
-          decoyIntensity: creator.decoyIntensity,
-          cipher: creator.cipher,
-          occlusion: occlusionSettings.value,
-          seed: (Math.random() * 2 ** 32) >>> 0,
-        },
+        settings: generationSettings(settings, (Math.random() * 2 ** 32) >>> 0),
       },
       (text) => setStatus(text, 'busy'),
     );
 
+    generatedWith = settings;
     creator.engine = engine;
     // Keep the cuts and histograms the plan used, so the manual editor starts
     // from whatever the automatic modes came up with.
@@ -205,11 +170,11 @@ export async function generatePlates() {
     creator.showOriginal = false;
     const weak = creator.plates.filter((plate) => plate.weak && !plate.isFalse).length;
     const advice =
-      creator.bandSpace === 'cells'
+      settings.bandSpace === 'cells'
         ? ' — raise the cell classes, or soften them'
         : ' — try fewer plates';
     setStatus(
-      `${creator.plateCount} chroma plates + ${creator.falseCount} decoys ready` +
+      `${settings.plateCount} chroma plates + ${settings.falseCount} decoys ready` +
         (engine === 'main' ? ' (main thread)' : '') +
         (weak ? ` · ${weak} plate${weak > 1 ? 's are' : ' is'} nearly empty${advice}` : ''),
       weak ? 'busy' : '',
@@ -231,18 +196,7 @@ export async function exportPuzzle() {
       plates: creator.plates,
       width: creator.source.width,
       height: creator.source.height,
-      numRealPlates: creator.plateCount,
-      numFalsePlates: creator.falseCount,
-      plateOpacity: creator.opacity,
-      bandSpace: creator.bandSpace,
-      bandMode: creator.bandMode,
-      weave: creator.weave,
-      cells: creator.bandSpace === 'cells' ? { ...creator.cells } : null,
-      falseMode: creator.falseMode,
-      decoyIntensity: creator.decoyIntensity,
-      stack: { mode: creator.cipher > 0 ? 'modular' : 'additive', cipher: creator.cipher },
-      occlusion: occlusionSettings.value,
-      tints: creator.plates.filter((plate) => !plate.isFalse).map((plate) => plate.tint),
+      settings: generatedWith,
     });
     setStatus(`Exported ${meta.totalPlates} shuffled plates + puzzle.json`);
   } catch (error) {
