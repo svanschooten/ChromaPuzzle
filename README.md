@@ -1,7 +1,8 @@
 # Chroma Puzzle
 
-A web app for creating and solving chroma puzzles: images decomposed into
-semi-transparent colored "plates" that stack to reveal the original picture.
+A web app for creating and solving chroma puzzles — images decomposed into
+semi-transparent colored "plates" that stack to reveal the original picture —
+and a command line for creating them.
 Imagine splitting a photo into its RGB channels, printing them on glass plates,
 and stacking them to recreate the original image.
 False plates act as decoys to increase difficulty.
@@ -13,6 +14,8 @@ modern browser. It is a single self-contained page — Vue, JSZip, and the style
 are inlined, nothing is fetched at runtime, and it works straight off the
 filesystem with no server. Published releases are also deployed to [GitHub
 Pages](https://svanschooten.github.io/ChromaPuzzle/).
+
+To make puzzles without a browser, see [Command Line](#command-line).
 
 ## Development
 
@@ -68,6 +71,108 @@ The solving workspace: it gives you the tooling to work the puzzle out yourself.
 5. If the puzzle carried a `puzzle.json`, the app tells you when the enabled set
    matches the solution hash, without ever revealing which plates those are
 6. Export your solution as a flattened PNG
+
+## Command Line
+
+The creator also runs without a browser. `chroma-puzzle generate` takes an image
+and writes the same puzzle ZIP the app exports, so the result loads straight
+into the Solver. It needs Node 22.12 or later.
+
+```bash
+npm install
+```
+
+```bash
+npm run cli -- generate photo.jpg -n 6 -d 3 --space cells --occlusion fracture --answer answer.json
+```
+
+`npm run cli` runs from the repository root, so relative paths are taken from
+there. `npm link` puts a `chroma-puzzle` command on your `PATH` that works from
+any directory, as does running `bin/chroma-puzzle.js` by its full path.
+`chroma-puzzle generate --help` lists everything below.
+
+### Settings
+
+Every setting starts at the app's default. `-c, --config <file>` reads a config
+file first — the `chroma-preset.json` the creator's **Save settings** writes —
+and flags override whatever it says. `--save-config <file>` writes the settings
+a run used back out, for the next run or for the app's **Load settings**.
+
+The two are checked differently. A config file is read the way the app reads a
+preset — values out of range are pulled back in, and unusable or unknown ones
+are ignored — with a warning for each. A flag out of range is an error, and
+nothing is generated.
+
+| Flag                                        | Config key                          | Values                                         | Default    |
+| ------------------------------------------- | ----------------------------------- | ---------------------------------------------- | ---------- |
+| `-n, --plates`                              | `plateCount`                        | 2–16                                           | 3          |
+| `-d, --decoys`                              | `falseCount`                        | 0–16                                           | 2          |
+| `--opacity`                                 | `opacity`                           | 0.3–1                                          | 1          |
+| `--space`                                   | `bandSpace`                         | `channels`, `spectrum`, `cells`                | `channels` |
+| `--split`                                   | `bandMode`                          | `linear`, `weighted`, `manual`                 | `linear`   |
+| `--weave`                                   | `weave`                             | 1–8                                            | 1          |
+| `--hue-classes`                             | `cells.hue`                         | 1–12                                           | 6          |
+| `--chroma-classes`                          | `cells.chroma`                      | 1–12                                           | 4          |
+| `--value-classes`                           | `cells.value`                       | 1–12                                           | 5          |
+| `--hard-cells`, `--no-hard-cells`           | `cells.hard`                        |                                                | soft       |
+| `--red-cuts`, `--green-cuts`, `--blue-cuts` | `cuts.channels`                     | comma-separated, 0–255                         | even       |
+| `--hue-cuts`                                | `cuts.hue`                          | comma-separated, 0–359                         | even       |
+| `--chroma-cuts`, `--value-cuts`             | `cuts.chroma`, `cuts.value`         | comma-separated, 0–255                         | even       |
+| `--decoy-mode`                              | `falseMode`                         | `drift`, `warp`                                | `drift`    |
+| `--decoy-intensity`                         | `decoyIntensity`                    | 0.05–1                                         | 0.6        |
+| `--occlusion`                               | `occlusionEnabled`, `occlusionMode` | `none`, `fracture`, `blend`, `noise`, `screen` | `none`     |
+| `--occlusion-strength`                      | `occlusionStrength`                 | 0.05–1                                         | 0.6        |
+| `--shard-size`                              | `shardSize`                         | 12–96                                          | 32         |
+| `--island-size`                             | `blendScale`                        | 16–256                                         | 40         |
+| `--dot-size`                                | `screenScale`                       | 1–8                                            | 2          |
+| `--cipher`                                  | `cipher`                            | 0–1                                            | 0          |
+
+Cuts only count with `--split manual`; left out, they are placed evenly. The
+plan tidies them to fit, as it does in the app, and the run says when that
+moved, added or dropped any. A flag the other settings make pointless —
+`--weave` with cells, `--shard-size` without fracture — gets a warning instead
+of being silently ignored.
+
+### Output
+
+| Flag                   | Does                                                                         |
+| ---------------------- | ---------------------------------------------------------------------------- |
+| `-o, --output <path>`  | Where the puzzle goes: `chroma-puzzle.zip`, or `chroma-puzzle/` with `--dir` |
+| `--dir`                | Loose plate PNGs and `puzzle.json` in a directory instead                    |
+| `--answer <file>`      | Which plates are real, for whoever made the puzzle                           |
+| `--save-config <file>` | The settings used, as a config file                                          |
+| `--json`               | Prints `puzzle.json` instead of the summary                                  |
+| `-f, --force`          | Replaces existing files; in a directory, only an earlier puzzle's            |
+| `-q, --quiet`          | Only warnings and errors                                                     |
+| `--seed <n>`           | Makes the same puzzle again                                                  |
+| `--max-size <px>`      | The long-edge cap, 16–8192; 2048 like the app unless given                   |
+
+Progress and warnings go to stderr, the summary to stdout, and any failure exits
+with status 1. Nothing is overwritten without `--force`.
+
+The answer file names the real plates, which band each one carries, and any
+plate too empty to tell apart. Keep it away from the plates:
+
+```json
+{
+  "chromaPuzzleAnswer": 1,
+  "solutionHash": "…",
+  "seed": 3141592653,
+  "realPlates": ["plate_01.png", "plate_03.png", "plate_04.png"],
+  "falsePlates": ["plate_02.png", "plate_05.png"],
+  "bands": { "plate_01.png": "Green", "plate_03.png": "Red", "plate_04.png": "Blue" },
+  "nearlyEmpty": []
+}
+```
+
+The same image, settings and `--seed` make the same plates in the same shuffled
+order. The summary line shows the seed, and the answer file records it;
+`puzzle.json` never does, because the seed decides the shuffle and so gives the
+answer away.
+
+Images are decoded with [sharp](https://sharp.pixelplumbing.com/), so a source
+can be PNG, JPEG, WebP, AVIF, TIFF or GIF; an animation gives its first frame.
+Like a browser, it turns photos upright by their EXIF orientation.
 
 ## How It Works
 
@@ -234,7 +339,8 @@ tracks the image, correlating **0.9**, worse than additive.
 Generation runs in a Web Worker, with a progress line and an estimate in the UI.
 Splitting costs roughly `plates²` under occlusion, so plate counts are capped at
 **16**, and above **8** the estimate warns that it will take a while. Source
-images are capped at 2048px on the long edge.
+images are capped at 2048px on the long edge; the command line's `--max-size`
+can raise that to 8192.
 
 Measured at 1200×900, split only:
 
@@ -255,12 +361,20 @@ pass over the others.
 ```
 chroma-puzzle.html    the shippable single page (build output, not tracked)
 index.html            Vite dev entry
+bin/
+  chroma-puzzle.js    command-line entry point
 src/
   main.js             app bootstrap
   App.vue             layout, mode switch, status bar
   state.js            shared state and every action
   styles.css          dark theme
   components/         DropZone, PreviewPanel, BandCuts, Creator/Solver panels
+  cli/
+    index.js          the chroma-puzzle program
+    generate.js       the generate command: settings in, puzzle and answer out
+    options.js        a flag for every setting, held to preset.js's ranges
+    output.js         where a puzzle is written, and what it may not overwrite
+    image.js          sources decoded and plates encoded with sharp
   lib/
     bands/
       index.js        band planning: spaces, modes, weave, limits
@@ -295,13 +409,14 @@ src/
     generate.worker.js   runs generation off the UI thread
     generateClient.js    worker with a main-thread fallback
 test/unit/            node:test unit suites
+test/cli.test.mjs     command-line end-to-end test
 test/e2e.mjs          browser end-to-end test
 ```
 
 ## Puzzle Format
 
-A puzzle ZIP (`chroma-puzzle.zip`) holds `puzzle.json` and the plate PNGs,
-shuffled so that filenames give nothing away:
+A puzzle ZIP (`chroma-puzzle.zip`, from the app or the command line) holds
+`puzzle.json` and the plate PNGs, shuffled so that filenames give nothing away:
 
 ```json
 {
@@ -334,7 +449,8 @@ shuffled so that filenames give nothing away:
 ## Preset Format
 
 `chroma-preset.json` carries the creator's settings and nothing else — no image,
-no plates:
+no plates. The command line reads the same file with `--config` and writes it
+with `--save-config`:
 
 ```json
 {
@@ -365,7 +481,7 @@ no plates:
 npm run build && npm test
 ```
 
-`npm test` runs both suites.
+`npm test` runs all three suites.
 
 **Unit** (`npm run test:unit`, `node:test`, no browser) covers the parts where
 correctness is a property rather than a pixel: that bands partition every
@@ -373,21 +489,31 @@ channel for every plate count and mode, that weighted planning really does even
 out how much image each band carries, that every occlusion mode's weights sum
 to 1 for every band at every pixel, that plates reconstruct the source with zero
 error at opacity 1, and that decoys carry a real plate's alpha but never
-duplicate one. Generation is seeded, so all of it is reproducible.
+duplicate one. Generation is seeded, so all of it is reproducible. They also
+hold the command line to the config format: every setting a config file holds
+has a flag, and no flag accepts a value a config file would have to correct.
+
+**Command line** (`npm run test:cli`, `node:test`, no browser) runs the real
+binary on synthesised images: every band space and occlusion mode rebuilds the
+source exactly from the plates the answer file names, a ciphered puzzle reveals
+modulo 256, a seed reproduces a puzzle, a config file and flags combine as they
+should, and bad flags fail before anything is written.
 
 **End to end** (`npm run test:e2e`) drives the built page in Chromium: it
 generates puzzles across plate counts, band spaces, decoy modes and every
 occlusion mode, checks each one still reconstructs exactly, round-trips both a
 plain and a ciphered ZIP through the solver, and verifies the solution hash,
-presets, solo, keyboard reordering and PNG export. Set `CHROME_PATH` to use a system browser instead of
-Playwright's download.
+presets, solo, keyboard reordering and PNG export. It also loads puzzles made on
+the command line, which have to solve like the app's own. Set `CHROME_PATH` to
+use a system browser instead of Playwright's download.
 
 ## Continuous Integration
 
 `.github/workflows/continuous-integration-workflow.yml` runs on pushes to
-`main`, on pull requests, and on demand: `test` builds the page and runs both
-suites in Chromium, `formatting` runs `prettier --check`, `fallow` reports
-static analysis (advisory), and `build` uploads the page as an artifact.
+`main`, on pull requests, and on demand. `test` builds the page and runs all
+three suites, the browser one in Chromium; `formatting` runs `prettier --check`;
+`fallow` reports static analysis (advisory); and `build` uploads the page as an
+artifact.
 
 ## Releases
 

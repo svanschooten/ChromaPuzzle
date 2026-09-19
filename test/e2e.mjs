@@ -6,6 +6,7 @@
 // download is not present (e.g. CHROME_PATH=/usr/bin/chromium-browser).
 import { chromium } from 'playwright';
 import JSZip from 'jszip';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, rm, writeFile, readFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -538,6 +539,45 @@ async function main() {
     bytes.length > 100 && bytes.subarray(1, 4).toString() === 'PNG',
     `${bytes.length} bytes`,
   );
+
+  /* ----------------------------------------------------------- command line */
+  // A puzzle made on the command line has to solve here like one made in the app.
+  const cliRuns = [
+    ['cli-plain', ['-n', '4', '--space', 'cells', '--occlusion', 'fracture']],
+    ['cli-cipher', ['-n', '3', '-d', '1', '--space', 'spectrum', '--cipher', '1']],
+  ];
+  for (const [name, flags] of cliRuns) {
+    const puzzlePath = join(work, `${name}.zip`);
+    const answerPath = join(work, `${name}-answer.json`);
+    execFileSync(process.execPath, [
+      'bin/chroma-puzzle.js',
+      'generate',
+      sourcePath,
+      ...['-o', puzzlePath, '--answer', answerPath, '--seed', '5', '--force', '-q'],
+      ...flags,
+    ]);
+    const answer = JSON.parse(await readFile(answerPath, 'utf8'));
+
+    await page.click('button.linkbtn:has-text("Clear All")');
+    await page.setInputFiles('input[aria-label^="Load plates"]', puzzlePath);
+    await page.waitForSelector('.panel.right .card');
+    for (const plate of answer.falsePlates) {
+      await page
+        .locator(
+          `.panel.right .card:has-text("${plate.replace(/\.png$/, '')}") input[type=checkbox]`,
+        )
+        .uncheck();
+    }
+    await page.waitForTimeout(200);
+    check(
+      `${name}: the answer file names the solution`,
+      (await verdict.textContent()).includes('Correct combination'),
+    );
+    check(
+      `${name}: the solved stack reproduces the source`,
+      meanAbsError(await readCanvas(), sourceRgb) === 0,
+    );
+  }
 
   check('no uncaught page errors', errors.length === 0, errors.join(' | '));
 
