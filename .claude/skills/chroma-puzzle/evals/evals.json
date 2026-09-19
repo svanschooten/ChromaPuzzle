@@ -1,0 +1,42 @@
+{
+  "skill_name": "chroma-puzzle",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Can you turn ~/Pictures/beach.jpg into one of those chroma puzzles for my 9 year old niece? Nothing too hard.",
+      "expected_output": "An easy puzzle ZIP and a separate answer file, with a short report of where both are and the seed, without naming the real plates in the reply.",
+      "files": [],
+      "assertions": [
+        "Runs `node bin/chroma-puzzle.js generate` from the repository root",
+        "Uses at most 4 real plates, and neither --occlusion nor --cipher",
+        "Writes an --answer file that is not inside the puzzle output",
+        "Checks the contact sheet shows the image in the stacked tile",
+        "Gives the seed or a saved config, and does not list the real plates in the reply"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "puzzle night on friday!! make me hard puzzles from every jpg in ./photos, each one different, and keep whatever I'd need to regenerate them",
+      "expected_output": "One hard puzzle per photo, each with its own output path, answer file and seed or saved config, with every run's warnings checked.",
+      "files": [],
+      "assertions": [
+        "Generates one puzzle for every .jpg in ./photos, each to a distinct output path",
+        "Makes them hard: an --occlusion mode with a --decoy-intensity below 0.6, or --cipher",
+        "Keeps an answer file or --save-config output for every puzzle",
+        "Reads each run's stderr for warnings and acts on them"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "I saved a preset in the app as chroma-preset.json. I want the same thing but with 8 plates and cells, and last time it complained some plates were nearly empty",
+      "expected_output": "A run from the preset with only the plate count and space overridden, which deals with any nearly-empty warning before reporting.",
+      "files": [],
+      "assertions": [
+        "Passes the preset with -c or --config, and overrides only the plate count and band space with flags",
+        "Answers a nearly-empty warning with --split weighted, more or soft cell classes, or fewer plates",
+        "Runs again until the warning is gone, or explains why it cannot be avoided",
+        "Uses --force only on files it created itself"
+      ]
+    }
+  ]
+}

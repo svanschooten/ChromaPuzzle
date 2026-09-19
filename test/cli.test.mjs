@@ -293,3 +293,52 @@ test('other formats load, upright, and scaled to --max-size', async () => {
   const small = (await readZip('small.zip')).meta;
   assert.deepEqual([small.width, small.height], [15, 20]);
 });
+
+test("the agent skill's contact sheet shows every plate and the answer stacked", async () => {
+  const script = resolve('.claude/skills/chroma-puzzle/scripts/contact-sheet.mjs');
+  const sheet = (args) => execute(process.execPath, [script, ...args.split(/\s+/)], { cwd: work });
+
+  for (const [name, flags] of [
+    ['sheet-add', '--occlusion fracture'],
+    ['sheet-mod', '--cipher 1 -n 4'],
+  ]) {
+    await succeeds(`source.png -o ${name}.zip --answer ${name}.json -q ${flags}`);
+    const answer = await readJson(`${name}.json`);
+    const { meta } = await readZip(`${name}.zip`);
+    const { stdout } = await sheet(`${name}.zip ${name}.png --answer ${name}.json`);
+    const { tiles } = JSON.parse(stdout);
+    assert.deepEqual(
+      tiles.map((entry) => entry.role),
+      [
+        ...meta.plateFiles.map((file) => (answer.realPlates.includes(file) ? 'real' : 'decoy')),
+        'stack',
+      ],
+    );
+
+    // The stacked tile is the source itself, scaled the way every tile is.
+    const { box } = tiles.at(-1);
+    const drawn = await sharp(join(work, `${name}.png`))
+      .extract(box)
+      .raw()
+      .toBuffer();
+    const source = await sharp(join(work, 'source.png'))
+      .flatten({ background: '#000000' })
+      .resize(256, 256, { fit: 'inside' })
+      .raw()
+      .toBuffer();
+    assert.equal(drawn.length, source.length);
+    assert.ok(
+      drawn.every((value, index) => Math.abs(value - source[index]) <= 1),
+      flags,
+    );
+  }
+
+  const preview = JSON.parse((await sheet('sheet-add.zip preview.png')).stdout);
+  assert.ok(preview.tiles.every((entry) => entry.role === 'plate'));
+
+  const answer = await readJson('sheet-add.json');
+  await writeJson('wrong.json', { ...answer, realPlates: answer.falsePlates });
+  const refused = await sheet('sheet-add.zip wrong.png --answer wrong.json').catch((e) => e);
+  assert.equal(refused.code, 1);
+  assert.match(refused.stderr, /not the answer to this puzzle/);
+});

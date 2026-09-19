@@ -174,6 +174,22 @@ Images are decoded with [sharp](https://sharp.pixelplumbing.com/), so a source
 can be PNG, JPEG, WebP, AVIF, TIFF or GIF; an animation gives its first frame.
 Like a browser, it turns photos upright by their EXIF orientation.
 
+### Agent skill
+
+[`.claude/skills/chroma-puzzle/`](.claude/skills/chroma-puzzle/SKILL.md) is an
+[Agent Skill](https://agentskills.io) that teaches a coding agent to drive the
+command line: which settings make a puzzle easy or hard, what each warning
+means, and how to keep the answer to itself. Claude Code picks it up in this
+repository without any setup.
+
+Its contact sheet script is handy without an agent too. It tiles every plate of
+a puzzle into one PNG, and with the answer file it frames the real plates and
+stacks them into a last tile:
+
+```bash
+node .claude/skills/chroma-puzzle/scripts/contact-sheet.mjs chroma-puzzle.zip sheet.png --answer answer.json
+```
+
 ## How It Works
 
 Each plate carries part of the source image's color information at a reduced
@@ -361,6 +377,8 @@ pass over the others.
 ```
 chroma-puzzle.html    the shippable single page (build output, not tracked)
 index.html            Vite dev entry
+.claude/skills/
+  chroma-puzzle/      agent skill for the command line, with a contact sheet script
 bin/
   chroma-puzzle.js    command-line entry point
 src/
@@ -497,7 +515,8 @@ has a flag, and no flag accepts a value a config file would have to correct.
 binary on synthesised images: every band space and occlusion mode rebuilds the
 source exactly from the plates the answer file names, a ciphered puzzle reveals
 modulo 256, a seed reproduces a puzzle, a config file and flags combine as they
-should, and bad flags fail before anything is written.
+should, and bad flags fail before anything is written. It also checks that the
+agent skill's contact sheet stacks the answer back into the source.
 
 **End to end** (`npm run test:e2e`) drives the built page in Chromium: it
 generates puzzles across plate counts, band spaces, decoy modes and every
