@@ -118,13 +118,22 @@ function plateNotes(result, settings) {
   const notes = describeCutChanges(settings, result.cuts);
   const weak = result.plates.filter((plate) => plate.weak && !plate.isFalse).length;
   if (weak) {
-    const advice =
-      settings.bandSpace === 'cells'
-        ? `raise the cell classes${settings.cells.hard ? ', or drop --hard-cells' : ''}`
-        : 'try fewer plates';
-    notes.unshift(`${weak} plate${weak > 1 ? 's are' : ' is'} nearly empty — ${advice}`);
+    const plates = `${weak} plate${weak > 1 ? 's are' : ' is'}`;
+    notes.unshift(`${plates} nearly empty — try ${emptyPlateRemedies(settings).join(', ')}`);
   }
   return notes;
+}
+
+// Occlusion shares every band over all the plates, and fewer plates leave each
+// more to carry. More cell classes do not help: a flat patch of colour is one
+// cell however finely the axes are cut.
+function emptyPlateRemedies(settings) {
+  const remedies = [];
+  if (settings.bandMode !== 'weighted') remedies.push('--split weighted');
+  if (settings.bandSpace === 'cells' && settings.cells.hard) remedies.push('--no-hard-cells');
+  remedies.push('fewer plates');
+  if (!settings.occlusionEnabled) remedies.push('an --occlusion mode');
+  return remedies.length > 1 ? [...remedies.slice(0, -1), `or ${remedies.at(-1)}`] : remedies;
 }
 
 function summary({ output, answer, config }, meta, seed) {

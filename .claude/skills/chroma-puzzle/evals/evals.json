@@ -1,40 +1,48 @@
 {
   "skill_name": "chroma-puzzle",
+  "setup": "Give each run a copy of the repository with its dependencies installed, and a home directory with the files below: beach.jpg in ~/Pictures, the photos in ./photos, and chroma-preset.json and garden.jpg in the current directory.",
   "evals": [
     {
       "id": 1,
       "prompt": "Can you turn ~/Pictures/beach.jpg into one of those chroma puzzles for my 9 year old niece? Nothing too hard.",
-      "expected_output": "An easy puzzle ZIP and a separate answer file, with a short report of where both are and the seed, without naming the real plates in the reply.",
-      "files": [],
+      "expected_output": "An easy puzzle ZIP outside the repository and a separate answer file, with a short report of where both are and how to make it again, without naming the real plates in the reply.",
+      "files": ["evals/files/beach.jpg"],
       "assertions": [
-        "Runs `node bin/chroma-puzzle.js generate` from the repository root",
+        "Makes the puzzle with the repository's CLI, and the puzzle ZIP exists",
+        "Writes the puzzle outside the repository checkout",
         "Uses at most 4 real plates, and neither --occlusion nor --cipher",
-        "Writes an --answer file that is not inside the puzzle output",
-        "Checks the contact sheet shows the image in the stacked tile",
+        "Writes an answer file that is not inside the puzzle",
+        "Checks that the real plates stack back into the image",
         "Gives the seed or a saved config, and does not list the real plates in the reply"
       ]
     },
     {
       "id": 2,
       "prompt": "puzzle night on friday!! make me hard puzzles from every jpg in ./photos, each one different, and keep whatever I'd need to regenerate them",
-      "expected_output": "One hard puzzle per photo, each with its own output path, answer file and seed or saved config, with every run's warnings checked.",
-      "files": [],
+      "expected_output": "One hard puzzle per photo, each with its own output path and answer file, the settings and seed kept for every one, and every run's warnings dealt with.",
+      "files": [
+        "evals/files/photos/forest.jpg",
+        "evals/files/photos/lighthouse.jpg",
+        "evals/files/photos/market.jpg"
+      ],
       "assertions": [
-        "Generates one puzzle for every .jpg in ./photos, each to a distinct output path",
+        "Makes one puzzle for every .jpg in ./photos, each to its own output path",
         "Makes them hard: an --occlusion mode with a --decoy-intensity below 0.6, or --cipher",
-        "Keeps an answer file or --save-config output for every puzzle",
-        "Reads each run's stderr for warnings and acts on them"
+        "Keeps both the settings and the seed of every puzzle",
+        "Keeps the answer files apart from the puzzles that get handed out",
+        "Reads each run's warnings and acts on them"
       ]
     },
     {
       "id": 3,
-      "prompt": "I saved a preset in the app as chroma-preset.json. I want the same thing but with 8 plates and cells, and last time it complained some plates were nearly empty",
-      "expected_output": "A run from the preset with only the plate count and space overridden, which deals with any nearly-empty warning before reporting.",
-      "files": [],
+      "prompt": "I saved a preset in the app as chroma-preset.json. I want the same thing for garden.jpg but with 8 plates and cells, and last time it complained some plates were nearly empty",
+      "expected_output": "A puzzle from the preset with 8 plates in cells space and no nearly-empty plates, after dealing with the warning this image and preset produce.",
+      "files": ["evals/files/chroma-preset.json", "evals/files/garden.jpg"],
       "assertions": [
-        "Passes the preset with -c or --config, and overrides only the plate count and band space with flags",
-        "Answers a nearly-empty warning with --split weighted, more or soft cell classes, or fewer plates",
-        "Runs again until the warning is gone, or explains why it cannot be avoided",
+        "Passes the preset with -c or --config, with 8 plates and the cells space as flags",
+        "Notices the nearly-empty warning the first run prints",
+        "The final puzzle has no nearly-empty real plate",
+        "Keeps the 8 plates and cells space, or explains why one of them had to change",
         "Uses --force only on files it created itself"
       ]
     }

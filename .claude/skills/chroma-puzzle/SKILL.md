@@ -133,16 +133,22 @@ What the settings do:
 
 ## Warnings
 
-| stderr says                                                       | Do                                                                               |
-| ----------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `… nearly empty — …`                                              | Fewer `-n`, or `--split weighted`; in cells, more classes or drop `--hard-cells` |
-| `--flag has no effect: it only applies with …`                    | Add the setting it names, or drop the flag                                       |
-| `… did not fit the plan; used …` or `… evenly spaced`             | Manual cuts were adjusted: pass as many as the "used" list, or drop them         |
-| `<config>: … out of range, using …` or `… ignored: …`             | The run used corrected values; fix the config file                               |
-| `… is inside the puzzle: whoever gets the puzzle gets the answer` | Write `--answer` outside the `--dir` output                                      |
+| stderr says                                                       | Do                                                                       |
+| ----------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| `… nearly empty — try …`                                          | Apply what it lists, starting with the change the user minds least       |
+| `--flag has no effect: it only applies with …`                    | Add the setting it names, or drop the flag                               |
+| `… did not fit the plan; used …` or `… evenly spaced`             | Manual cuts were adjusted: pass as many as the "used" list, or drop them |
+| `<config>: … out of range, using …` or `… ignored: …`             | The run used corrected values; fix the config file                       |
+| `… is inside the puzzle: whoever gets the puzzle gets the answer` | Write `--answer` outside the `--dir` output                              |
 
 A nearly empty plate carries almost no light, so nobody can tell it apart from
-another one by looking.
+another one by looking. It comes from flat colour: hard cells or many plates on
+artwork with few distinct colours leave bands with nothing in them. Any
+`--occlusion` mode clears it, because occlusion shares every band over all the
+plates; fewer plates, `spectrum` or `channels` usually do too; `--split
+weighted` and soft cells only help. Raising the cell classes does not: a flat
+patch of colour stays one cell however finely the axes are cut, and more
+classes can empty more plates.
 
 ## Gotchas
 
