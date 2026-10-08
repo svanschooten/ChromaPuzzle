@@ -2,15 +2,18 @@
 //
 // A preset is meant to be passed around, so reading one treats every field as
 // untrusted: numbers are pulled back into range, choices have to be ones we
-// know, and anything else is left alone rather than applied.
+// know, and anything else is left alone rather than applied. The command line
+// holds its flags to the same ranges.
 import { BAND_MODES, BAND_SPACES, MAX_PLATES, MAX_WEAVE, MIN_PLATES } from './bands/index.js';
 import { FALSE_MODES } from './falsePlate.js';
 import { OCCLUSION_MODES } from './occlusion/index.js';
+import { defaultSettings } from './settings.js';
 
 const PRESET_MARKER = 'chromaPuzzlePreset';
 const PRESET_VERSION = 1;
 
-const NUMBERS = {
+/** Where each numeric setting has to sit; `step: 1` means whole numbers only. */
+export const RANGES = {
   plateCount: { min: MIN_PLATES, max: MAX_PLATES, step: 1 },
   falseCount: { min: 0, max: MAX_PLATES, step: 1 },
   opacity: { min: 0.3, max: 1 },
@@ -23,20 +26,23 @@ const NUMBERS = {
   screenScale: { min: 1, max: 8, step: 1 },
 };
 
-const CHOICES = {
+export const CHOICES = {
   bandSpace: BAND_SPACES,
   bandMode: BAND_MODES,
   falseMode: FALSE_MODES,
   occlusionMode: OCCLUSION_MODES,
 };
 
+/** Classes per colour-cell axis; 1 switches the axis off. */
+export const CELL_RANGE = { min: 1, max: 12, step: 1 };
+
 const FLAGS = ['occlusionEnabled'];
-const CELL_DEFAULTS = { hue: 6, chroma: 4, value: 5, hard: false };
+const CELL_DEFAULTS = defaultSettings().cells;
 
 /** @returns {object} a plain object ready to be written out as JSON. */
 export function buildPreset(settings) {
   const preset = { [PRESET_MARKER]: PRESET_VERSION };
-  for (const key of [...Object.keys(NUMBERS), ...Object.keys(CHOICES), ...FLAGS]) {
+  for (const key of [...Object.keys(RANGES), ...Object.keys(CHOICES), ...FLAGS]) {
     preset[key] = settings[key];
   }
   preset.cells = { ...CELL_DEFAULTS, ...settings.cells };
@@ -48,6 +54,17 @@ const clamp = (value, { min, max, step }) => {
   const bounded = Math.min(max, Math.max(min, value));
   return step === 1 ? Math.round(bounded) : bounded;
 };
+
+/** A number held to `range`, noted by `name` when it is unusable or had to be pulled in. */
+function readNumber(value, range, name, notes) {
+  if (!Number.isFinite(value)) {
+    notes.ignored.push(name);
+    return undefined;
+  }
+  const read = clamp(value, range);
+  if (read !== value) notes.adjusted.push(name);
+  return read;
+}
 
 const isNumberList = (value) =>
   Array.isArray(value) && value.every((entry) => Number.isFinite(entry));
@@ -63,13 +80,12 @@ function readCuts(cuts) {
   return { channels, hue: hue ?? [], chroma: chroma ?? [], value: value ?? [] };
 }
 
-function readCells(cells) {
+function readCells(cells, notes) {
   if (!cells || typeof cells !== 'object') return null;
   const out = { ...CELL_DEFAULTS };
   for (const axis of ['hue', 'chroma', 'value']) {
-    if (Number.isFinite(cells[axis])) {
-      out[axis] = clamp(cells[axis], { min: 1, max: 12, step: 1 });
-    }
+    if (cells[axis] === undefined) continue;
+    out[axis] = readNumber(cells[axis], CELL_RANGE, `cells.${axis}`, notes) ?? out[axis];
   }
   out.hard = cells.hard === true;
   return out;
@@ -77,8 +93,9 @@ function readCells(cells) {
 
 /**
  * @param {object} data parsed JSON, from anywhere
- * @returns {{values: object, ignored: string[]}} settings to apply, and the
- *   fields that were present but unusable
+ * @returns {{values: object, ignored: string[], adjusted: string[]}} settings
+ *   to apply, the fields that were present but unusable, and the ones that
+ *   had to be pulled back into range
  * @throws {Error} when the file is not a preset at all
  */
 export function readPreset(data) {
@@ -88,11 +105,13 @@ export function readPreset(data) {
 
   const values = {};
   const ignored = [];
+  const adjusted = [];
+  const notes = { ignored, adjusted };
 
-  for (const [key, range] of Object.entries(NUMBERS)) {
+  for (const [key, range] of Object.entries(RANGES)) {
     if (data[key] === undefined) continue;
-    if (Number.isFinite(data[key])) values[key] = clamp(data[key], range);
-    else ignored.push(key);
+    const value = readNumber(data[key], range, key, notes);
+    if (value !== undefined) values[key] = value;
   }
 
   for (const [key, allowed] of Object.entries(CHOICES)) {
@@ -106,7 +125,7 @@ export function readPreset(data) {
   }
 
   if (data.cells !== undefined) {
-    const cells = readCells(data.cells);
+    const cells = readCells(data.cells, notes);
     if (cells) values.cells = cells;
     else ignored.push('cells');
   }
@@ -117,5 +136,5 @@ export function readPreset(data) {
     else ignored.push('cuts');
   }
 
-  return { values, ignored };
+  return { values, ignored, adjusted };
 }

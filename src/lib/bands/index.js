@@ -20,7 +20,7 @@ export const MAX_WEAVE = 8;
  * @param {object} options
  * @param {Uint8ClampedArray} options.pixels source image
  * @param {number} options.plateCount 2..MAX_PLATES
- * @param {'channels'|'spectrum'} [options.space] RGB channels, or hue arcs
+ * @param {'channels'|'spectrum'|'cells'} [options.space] RGB channels, hue arcs, or colour cells
  * @param {'linear'|'weighted'|'manual'} [options.mode] how the cuts are placed
  * @param {number} [options.weave] slices per band; >1 interleaves them
  * @param {?object} [options.cuts] hand-placed cuts for manual mode
@@ -54,7 +54,7 @@ export function planBands({
       : space === 'spectrum'
         ? planSpectrumBands(options)
         : planChannelBands(options);
-  // Both spaces hand back every cut, and the histograms behind them, so a
+  // Every space hands back its cuts, and the histograms behind them, so a
   // manual edit can start from what the automatic modes produced.
   plan.cuts = { channels: [[], [], []], hue: [], chroma: [], value: [], ...plan.cuts };
   plan.histograms = { channels: [], hue: [], chroma: [], value: [], ...plan.histograms };

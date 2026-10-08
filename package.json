@@ -1,15 +1,20 @@
 {
   "name": "chroma-puzzle",
   "version": "1.0.0",
-  "description": "Create and solve chroma puzzles in the browser",
+  "description": "Create and solve chroma puzzles in the browser, or create them from the command line",
+  "bin": {
+    "chroma-puzzle": "bin/chroma-puzzle.js"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build && cp dist/index.html chroma-puzzle.html",
     "preview": "vite preview",
-    "test": "npm run test:unit && npm run test:e2e",
+    "cli": "node bin/chroma-puzzle.js",
+    "test": "npm run test:unit && npm run test:cli && npm run test:e2e",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:unit": "node --test test/unit/*.test.mjs",
+    "test:cli": "node --test test/cli.test.mjs",
     "test:e2e": "node test/e2e.mjs"
   },
   "repository": {
@@ -24,8 +29,10 @@
   },
   "homepage": "https://github.com/svanschooten/ChromaPuzzle#readme",
   "dependencies": {
+    "commander": "^15.0.0",
     "file-saver": "^2.0.5",
     "jszip": "^3.10.2",
+    "sharp": "^0.35.4",
     "vue": "^3.5.42"
   },
   "devDependencies": {
@@ -34,6 +41,9 @@
     "prettier": "^3.9.6",
     "vite": "^8.3.0",
     "vite-plugin-singlefile": "^2.3.3"
+  },
+  "engines": {
+    "node": ">=22.12"
   },
   "type": "module",
   "private": true

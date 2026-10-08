@@ -144,3 +144,7 @@ vite.config.ts.timestamp-*
 .fallow/
 .idea/
 chroma-puzzle.html
+
+# Command-line output under its default names
+/chroma-puzzle.zip
+/chroma-puzzle/
