@@ -29,11 +29,11 @@
   },
   "homepage": "https://github.com/svanschooten/ChromaPuzzle#readme",
   "dependencies": {
-    "commander": "^15.0.0",
+    "commander": "^15.1.0",
     "file-saver": "^2.0.5",
     "jszip": "^3.10.2",
-    "sharp": "^0.35.4",
-    "vue": "^3.5.43"
+    "sharp": "^0.35.5",
+    "vue": "^3.5.45"
   },
   "devDependencies": {
     "@vitejs/plugin-vue": "^6.0.9",
